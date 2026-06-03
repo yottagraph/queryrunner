@@ -105,8 +105,14 @@ export interface ExecuteRequest {
     expected: AnswerExpectation;
 }
 
-/** Human-readable description of an expectation, for tables/labels. */
-export function describeExpectation(exp: AnswerExpectation): string {
+/**
+ * Human-readable description of an expectation, for tables/labels.
+ *
+ * Tolerates `null`/`undefined`/legacy shapes (returns "—") so a single
+ * malformed catalog entry can't throw mid-render and blank the whole list.
+ */
+export function describeExpectation(exp: AnswerExpectation | null | undefined): string {
+    if (!exp || typeof exp !== 'object') return '—';
     switch (exp.kind) {
         case 'string':
             if (exp.match === 'icontains') return `contains "${exp.value}"`;
@@ -119,5 +125,7 @@ export function describeExpectation(exp: AnswerExpectation): string {
             const hi = exp.max ?? '∞';
             return `between ${lo} and ${hi}`;
         }
+        default:
+            return '—';
     }
 }

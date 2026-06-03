@@ -103,4 +103,12 @@ describe('describeExpectation', () => {
         );
         expect(describeExpectation({ kind: 'number_range', min: 1 })).toContain('1');
     });
+
+    it('never throws on missing/legacy expectations (returns a placeholder)', () => {
+        // A legacy MVP catalog entry has no `expected`; rendering it must not
+        // throw, or the whole /queries list blanks.
+        expect(describeExpectation(undefined)).toBe('—');
+        expect(describeExpectation(null)).toBe('—');
+        expect(describeExpectation({} as never)).toBe('—');
+    });
 });

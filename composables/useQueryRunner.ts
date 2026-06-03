@@ -75,7 +75,27 @@ function seedQueries(): QueryDef[] {
     ];
 }
 
-let seeded = false;
+let initialized = false;
+
+/**
+ * A catalog entry is usable only if it's in the agent-answered shape: a
+ * non-empty plaintext `question` plus an `expected` with a known `kind`.
+ * Pre-refactor MVP entries (structured `body`, no `question`) fail this — they
+ * can't be run by the agent and crash the catalog render, so we migrate them
+ * out on load.
+ */
+function isAgentQuery(q: unknown): q is QueryDef {
+    if (!q || typeof q !== 'object') return false;
+    const o = q as Record<string, unknown>;
+    const expected = o.expected as Record<string, unknown> | undefined;
+    return (
+        typeof o.question === 'string' &&
+        o.question.trim().length > 0 &&
+        !!expected &&
+        typeof expected === 'object' &&
+        typeof expected.kind === 'string'
+    );
+}
 
 /** Drop the heavy `trace` from a result before it goes into prefs. */
 function stripTrace(r: QueryResult): QueryResult {
@@ -92,24 +112,33 @@ export function useQueryRunner() {
         runs: blankRuns(),
     });
 
-    if (!seeded) {
-        seeded = true;
-        // Seed AFTER prefs hydration, never during it. Seeding in the load
-        // window mutates the reactive root before the disk read lands, so the
-        // post-read merge clobbers the seed (the "flash then empty" bug) and
-        // the seed never persists (the write path is gated while !hydrated).
+    if (!initialized) {
+        initialized = true;
+        // Normalize + seed AFTER prefs hydration, never during it. Mutating the
+        // reactive root in the load window races the disk read: the post-read
+        // merge clobbers the change and the write path is gated while
+        // !hydrated, so nothing persists.
+        //
+        // `hydrated` may already be true when we get here (global prefs loaded
+        // before this page mounted, e.g. client-side nav), so this must work
+        // both on the immediate run and on a later flip — hence a plain
+        // idempotent guard rather than a self-stopping watcher.
         const { hydrated } = usePrefsStatus();
-        const stop = watch(
-            hydrated,
-            (isHydrated) => {
-                if (!isHydrated) return;
-                if (catalog.queries.length === 0) {
-                    catalog.queries = seedQueries();
-                }
-                stop();
-            },
-            { immediate: true }
-        );
+        let done = false;
+        const normalizeAndSeed = () => {
+            if (done || !hydrated.value) return;
+            done = true;
+            // Migrate out legacy/unrunnable entries (pre-agent MVP shape).
+            // They can't be answered by the agent and would crash the render.
+            const valid = catalog.queries.filter(isAgentQuery);
+            if (valid.length !== catalog.queries.length) {
+                catalog.queries = valid;
+            }
+            if (catalog.queries.length === 0) {
+                catalog.queries = seedQueries();
+            }
+        };
+        watch(hydrated, normalizeAndSeed, { immediate: true });
     }
 
     function addQuery(input: Omit<QueryDef, 'id' | 'createdAt' | 'updatedAt'>): QueryDef {
