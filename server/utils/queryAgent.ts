@@ -100,7 +100,12 @@ export async function runQueryAgent(question: string, model: string): Promise<Ru
 
     try {
         const agentId = await resolveQueryAgentId();
+        console.info(`[queryrunner] run agent=${agentId} q=${JSON.stringify(question)}`);
         const res = await callAgent({ agentId, message: question, userId: 'queryrunner' });
+        console.info(
+            `[queryrunner] agent done hosting=${res.hosting} session=${res.sessionId ?? 'none'} ` +
+                `toolCalls=${res.toolCalls.length} textLen=${res.text.length}`
+        );
 
         // Anchor offsets to the first observed call so the first bar starts at
         // t=0 (excludes agent authorize/session setup, which isn't tool work).
@@ -143,6 +148,7 @@ export async function runQueryAgent(question: string, model: string): Promise<Ru
         const message =
             (err as { statusMessage?: string })?.statusMessage ||
             (err instanceof Error ? err.message : String(err));
+        console.error(`[queryrunner] agent error: ${message}`);
         return {
             trace: { ...base, agentError: message },
             durationMs: Date.now() - startedAt,

@@ -112,6 +112,23 @@ export function useQueryRunner() {
         runs: blankRuns(),
     });
 
+    // Most recent result per query observed THIS SESSION — carries the full
+    // inline trace. Shared across pages (the catalog records it; the /result
+    // page reads it) but session-only: not persisted, gone on reload. Use
+    // `useState` so every component sees the same reactive map.
+    const liveResults = useState<Record<string, QueryResult>>(
+        'queryrunner-live-results',
+        () => ({})
+    );
+
+    function recordResult(r: QueryResult) {
+        liveResults.value = { ...liveResults.value, [r.queryId]: r };
+    }
+
+    function getLiveResult(queryId: string): QueryResult | undefined {
+        return liveResults.value[queryId];
+    }
+
     if (!initialized) {
         initialized = true;
         // Normalize + seed AFTER prefs hydration, never during it. Mutating the
@@ -236,6 +253,9 @@ export function useQueryRunner() {
         queries,
         runs,
         latestRun,
+        liveResults,
+        recordResult,
+        getLiveResult,
         addQuery,
         updateQuery,
         deleteQuery,

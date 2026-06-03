@@ -58,9 +58,27 @@ it with `@mcp.tool()`. Tools:
   properties, so the schema is exposed _navigably_ (list types → scope
   properties to a type → fuzzy-find a property) rather than dumped wholesale.
 - **Resolution / search / retrieval:** `resolve_entity`,
-  `get_entity_properties` (resolves reference values to names, dedups),
-  `find_entities` (expression language), `count_linked_entities`,
-  `get_entity_name`, `health`.
+  `get_entity_properties` (resolves reference values to names, dedups; see
+  provenance below), `find_entities` (expression language),
+  `count_linked_entities`, `get_entity_name`, `health`.
+
+`get_entity_properties` returns, alongside each `values` entry, a `details`
+entry carrying the chosen fact's provenance (`pid`, `efid`, `attributes`,
+`recorded_at`). It does **not** fetch source citations — that's slow and the
+agent never needs it.
+
+Rendered source citations are computed **on demand** instead, by
+`render_property_citations(neid, properties)`, exposed off the MCP tool surface
+as a plain HTTP route (`POST /citations` on the MCP server, registered with
+`@mcp.custom_route`). It re-fetches the facts and chains the two QS provenance
+endpoints — `POST /elemental/provenance/match` (fact quads → trails) then `POST
+/elemental/provenance/render` (trails → citations, with source/subject/url/
+excerpts), mirroring moongoose's MCP provenance helper. Doing the rendering in
+Python keeps it big-int safe. The UI reaches it through the Nuxt proxy
+`POST /api/queryrunner/citations` (server-only `NUXT_QUERY_MCP_URL`), and only
+when a result is inspected (see the `/result` page below). Everything degrades
+gracefully: an unreachable/unauthorized MCP, or an unmatched source, yields no
+citation rather than an error.
 
 Config comes from env (`GATEWAY_URL` + `TENANT_ORG_ID` + `QS_API_KEY`, or
 `ELEMENTAL_API_URL`) or `broadchurch.yaml`. Deploy with `/deploy_mcp`.
@@ -105,15 +123,38 @@ the over-time pass-rate metric keeps working everywhere.
 - `pages/runs.vue` / `pages/runs/[id].vue` — run history; the detail page has
   expandable per-query rows that load the full MCP navigation trace on demand.
 - `components/QueryEditDialog.vue` — question + expected-answer editor.
+- `pages/result/[queryId].vue` — full-page view of a single query's result
+  (the catalog's MCP-column button links here). Reads the session result from
+  the shared `liveResults` state in `useQueryRunner`, renders the full
+  `QueryTraceViewer`, and lazily fetches + merges source citations for each
+  `get_entity_properties` call via `/api/queryrunner/citations`.
 - `components/QueryTraceViewer.vue` — renders a trace as an Agent ⟷ MCP
-  **call flow**: each tool call shows its exact args + response (expandable)
-  plus per-call timing — a waterfall bar (offset + duration) so reasoning gaps
+  **call flow**: each tool call shows its exact args + full (untruncated)
+  response (expandable) plus per-call timing — a waterfall bar (offset +
+  duration) so reasoning gaps
   between calls are visible. Also shows the parsed answer, reasoning, and raw
   agent output. Per-call timing comes from each ADK `function_call` /
   `function_response` event (the event's own `timestamp`, falling back to the
   server-observed time); offsets are anchored to the first tool call. Traces
-  captured before timing existed render the flow without bars.
+  captured before timing existed render the flow without bars. Also renders a
+  **Stack logs** section: per-component log windows (UI server, agent, MCP)
+  captured for that one query (see `stackLogs` below).
 - `components/QueryResultChip.vue`, `QueryRunnerNav.vue`, `PassRateSparkline.vue`.
+
+### Per-query stack logs (`server/utils/stackLogs.ts`)
+
+In local dev the three processes (Nuxt UI, `adk api_server`, `elemental-query`
+MCP) each tail their output to a logfile under `QUERYRUNNER_STACK_LOG_DIR`
+(default `.aether-dev-logs/`: `ui.log`, `agent.log`, `mcp.log`). `execute`
+records each logfile's byte length right before the agent runs and reads
+whatever got appended once it returns, so the delta is exactly that query's
+lines (queries run serially locally). The result is attached to the trace as
+`stackLogs: StackLog[]` and persisted/returned with the rest of the trace. A
+missing logfile (e.g. in a deployed environment that ships logs to Cloud
+Logging) is simply skipped, so the feature degrades to fewer sources. To wire
+it up locally, start each process with stdout/stderr redirected to its logfile
+(use `PYTHONUNBUFFERED=1` for the two Python processes so writes flush per
+line).
 
 ## Expected-answer judging
 

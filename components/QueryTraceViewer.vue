@@ -91,7 +91,7 @@
                             <div class="kv-label">params (Agent → MCP)</div>
                             <pre class="json">{{ pretty(tc.args) }}</pre>
                             <div class="kv-label">response (MCP → Agent)</div>
-                            <pre class="json">{{ pretty(tc.response) }}</pre>
+                            <pre class="json">{{ pretty(displayResponse(tc.response)) }}</pre>
                         </div>
                     </li>
                 </ol>
@@ -101,6 +101,25 @@
                     per-call timing.
                 </div>
             </div>
+
+            <template v-if="stackLogs.length">
+                <div class="section-title">Stack logs</div>
+                <v-expansion-panels variant="accordion" multiple>
+                    <v-expansion-panel v-for="log in stackLogs" :key="log.source">
+                        <v-expansion-panel-title>
+                            <span class="log-source">{{ log.label }}</span>
+                            <span class="log-count">{{ logCountLabel(log) }}</span>
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                            <div v-if="log.note" class="trace-empty">{{ log.note }}</div>
+                            <div v-else-if="!log.lines.length" class="trace-empty">
+                                No output during this query.
+                            </div>
+                            <pre v-else class="json log-lines">{{ log.lines.join('\n') }}</pre>
+                        </v-expansion-panel-text>
+                    </v-expansion-panel>
+                </v-expansion-panels>
+            </template>
 
             <v-expansion-panels variant="accordion" class="mt-3">
                 <v-expansion-panel>
@@ -116,7 +135,7 @@
 
 <script setup lang="ts">
     import { computed, reactive } from 'vue';
-    import type { QueryTrace, ToolCallTrace } from '~/types/queryrunner';
+    import type { QueryTrace, StackLog, ToolCallTrace } from '~/types/queryrunner';
 
     const props = defineProps<{
         trace?: QueryTrace | null;
@@ -151,6 +170,14 @@
         (props.trace?.toolCalls ?? []).some((tc) => typeof tc.startOffsetMs === 'number')
     );
 
+    const stackLogs = computed<StackLog[]>(() => props.trace?.stackLogs ?? []);
+
+    function logCountLabel(log: StackLog): string {
+        if (log.note) return 'unavailable';
+        const n = log.lines.length;
+        return `${n} line${n === 1 ? '' : 's'}`;
+    }
+
     function barStyle(tc: ToolCallTrace): Record<string, string> {
         const span = totalMs.value || 1;
         const start = tc.startOffsetMs ?? 0;
@@ -177,11 +204,26 @@
         return String(v);
     }
 
+    /**
+     * MCP tool responses carry both `structuredContent` (the real object) and a
+     * `content` array that's just a stringified duplicate of it. Drop `content`
+     * for display — the capture keeps the full payload.
+     */
+    function displayResponse(resp: unknown): unknown {
+        if (resp && typeof resp === 'object' && !Array.isArray(resp) && 'content' in resp) {
+            const rest = { ...(resp as Record<string, unknown>) };
+            delete rest.content;
+            return rest;
+        }
+        return resp;
+    }
+
     function pretty(v: unknown): string {
         if (v === undefined) return '(no response captured)';
         try {
-            const s = JSON.stringify(v, null, 2);
-            return s.length > 8000 ? s.slice(0, 8000) + '\n… (truncated)' : s;
+            // Intentionally NOT truncated — the call-flow detail must show the
+            // full MCP response (args/response) for debugging.
+            return JSON.stringify(v, null, 2);
         } catch {
             return String(v);
         }
@@ -442,5 +484,28 @@
         white-space: pre-wrap;
         word-break: break-word;
         margin: 0 0 4px;
+    }
+
+    .log-source {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .log-count {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 0.72rem;
+        color: var(--lv-silver, #94a3b8);
+        margin-right: 8px;
+        white-space: nowrap;
+    }
+
+    .log-lines {
+        max-height: 360px;
+        overflow: auto;
+        white-space: pre;
+        word-break: normal;
     }
 </style>

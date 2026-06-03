@@ -374,6 +374,146 @@ def _name_for_neids(neids: list[str]) -> dict[str, str]:
         return {}
 
 
+def _resolve_wanted(properties: list[str]) -> tuple[list[tuple[str, Any, str]], list[str]]:
+    """Split requested property names into (name, pid, value_type) triples that
+    exist in the schema, plus a list of unknown names."""
+    name_to_prop = {p.get("name"): p for p in _properties()}
+    wanted: list[tuple[str, Any, str]] = []
+    unknown: list[str] = []
+    for nm in properties:
+        p = name_to_prop.get(nm)
+        if p and p.get("pid") is not None:
+            wanted.append((nm, p.get("pid"), p.get("value_type")))
+        else:
+            unknown.append(nm)
+    return wanted, unknown
+
+
+def _fetch_fact_rows(neid: str, wanted: list[tuple[str, Any, str]]) -> dict[str, dict]:
+    """Fetch raw property facts for one entity and dedup to the first source per
+    pid. Returns {pid_str: fact_row}; the row carries value/efid/attributes/
+    recorded_at."""
+    if not wanted:
+        return {}
+    pid_array = "[" + ",".join(str(pid) for _, pid, _ in wanted) + "]"
+    res = _post_form(
+        "elemental/entities/properties",
+        {"eids": json.dumps([neid]), "pids": pid_array},
+    )
+    by_pid: dict[str, dict] = {}
+    for v in (res or {}).get("values", []) or []:
+        pid = str(v.get("pid"))
+        if pid in by_pid or v.get("value") is None:
+            continue
+        by_pid[pid] = v
+    return by_pid
+
+
+# ---------------------------------------------------------------------------
+# Provenance: match a chosen fact to its source record, then render a citation.
+#
+# Two-step QS flow, mirroring moongoose's MCP provenance helper:
+#   1. POST /elemental/provenance/match — quads (efid, pid, nindex, value,
+#      recorded_at) → provenance trails (efid, record_index, atom_index).
+#   2. POST /elemental/provenance/render — trails → rendered citations
+#      (source, subject, url, supporting excerpts, …).
+# Both are form-POSTs whose body is a JSON-string field, and both return a
+# `results` list 1:1 with the input (same order).
+#
+# This is NOT done inline by get_entity_properties (it's slow and large, and
+# the agent never needs it). Instead `render_property_citations` is exposed as
+# a separate, on-demand call the UI makes only when a result is inspected.
+# ---------------------------------------------------------------------------
+
+
+def _match_provenance(quads: list[dict]) -> list[dict]:
+    """Match fact quads to provenance trails. Best-effort: never raises."""
+    if not quads:
+        return []
+    try:
+        res = _post_form("elemental/provenance/match", {"quads": json.dumps(quads)})
+        return (res or {}).get("results") or []
+    except Exception:
+        return []
+
+
+def _render_citations(trails: list[dict]) -> list[dict]:
+    """Render provenance trails to citations. Best-effort: never raises."""
+    if not trails:
+        return []
+    try:
+        res = _post_form("elemental/provenance/render", {"trails": json.dumps(trails)})
+        return (res or {}).get("results") or []
+    except Exception:
+        return []
+
+
+def render_property_citations(neid: str, properties: list[str]) -> dict:
+    """Render a source citation for each of an entity's properties, on demand.
+
+    Re-fetches the entity's facts, matches each (efid, pid, nindex, value,
+    recorded_at) quad to its provenance trail, then renders that trail to a
+    human-readable citation (source, subject, url, supporting excerpts).
+
+    Returns {"neid": str, "citations": {prop: citation, ...}}. A property is
+    absent from `citations` when it has no fact or no source could be matched.
+    Best-effort end to end — failures surface as {"error": ...}.
+    """
+    try:
+        neid = pad_neid(neid)
+        wanted, _unknown = _resolve_wanted(properties)
+        if not wanted:
+            return {"neid": neid, "citations": {}}
+        by_pid = _fetch_fact_rows(neid, wanted)
+        try:
+            nindex = int(neid)
+        except (TypeError, ValueError):
+            return {"neid": neid, "citations": {}}
+
+        # One quad per property that has a fact + efid; track the order so the
+        # 1:1 match/render results map back to the right property.
+        props: list[str] = []
+        quads: list[dict] = []
+        for nm, pid, _vtype in wanted:
+            row = by_pid.get(str(pid))
+            if row is None or not row.get("efid"):
+                continue
+            props.append(nm)
+            quads.append(
+                {
+                    "nindex": nindex,
+                    "pid": row.get("pid"),
+                    "value": row.get("value"),
+                    "recorded_at": row.get("recorded_at"),
+                    "efid": str(row.get("efid")),
+                }
+            )
+
+        trail_props: list[str] = []
+        trails: list[dict] = []
+        for prop, m in zip(props, _match_provenance(quads)):
+            if not isinstance(m, dict) or m.get("error") or not m.get("efid"):
+                continue
+            trail_props.append(prop)
+            trails.append(
+                {
+                    "efid": str(m.get("efid")),
+                    "record_index": m.get("record_index", 0),
+                    "atom_index": m.get("atom_index", 0),
+                }
+            )
+
+        citations: dict[str, Any] = {}
+        for prop, r in zip(trail_props, _render_citations(trails)):
+            if not isinstance(r, dict) or r.get("error"):
+                continue
+            if r.get("citation"):
+                citations[prop] = r["citation"]
+        return {"neid": neid, "citations": citations}
+    except Exception as e:
+        return {"error": f"Failed to render citations for {neid}: {e}"}
+
+
 def get_entity_properties(neid: str, properties: list[str]) -> dict:
     """Fetch named property values for one entity (by NEID).
 
@@ -382,44 +522,52 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
     and resolves reference (data_nindex) values to the linked entity's
     display name so you never see a raw NEID where a name belongs.
 
-    Returns {"values": {prop: value_or_null, ...}, "unknown_properties": [...]}.
+    Returns:
+        {
+          "neid": str,
+          "values": {prop: value_or_null, ...},   # resolved (refs → names)
+          "details": {prop: {                      # provenance of the chosen fact
+              "pid": int,                           # the property id
+              "efid": str,                          # the entity-fact id of this value
+              "attributes": <any|null>,             # fact qualifiers, when present
+              "recorded_at": str|null,              # when the fact was recorded
+          } | null, ...},
+          "unknown_properties": [...],
+        }
+
+    Source citations are NOT fetched here (that's slow and the agent never
+    needs them). Use `render_property_citations(neid, properties)` on demand —
+    e.g. the UI calls it when a result is inspected.
     """
     try:
         neid = pad_neid(neid)
-        name_to_prop = {p.get("name"): p for p in _properties()}
-        wanted: list[tuple[str, Any, str]] = []
-        unknown: list[str] = []
-        for nm in properties:
-            p = name_to_prop.get(nm)
-            if p and p.get("pid") is not None:
-                wanted.append((nm, p.get("pid"), p.get("value_type")))
-            else:
-                unknown.append(nm)
+        wanted, unknown = _resolve_wanted(properties)
 
         values: dict[str, Any] = {nm: None for nm, _, _ in wanted}
+        details: dict[str, Any] = {nm: None for nm, _, _ in wanted}
         if not wanted:
-            return {"neid": neid, "values": values, "unknown_properties": unknown}
+            return {
+                "neid": neid,
+                "values": values,
+                "details": details,
+                "unknown_properties": unknown,
+            }
 
-        pid_array = "[" + ",".join(str(pid) for _, pid, _ in wanted) + "]"
-        res = _post_form(
-            "elemental/entities/properties",
-            {"eids": json.dumps([neid]), "pids": pid_array},
-        )
-
-        # first-wins dedup per pid
-        by_pid: dict[str, Any] = {}
-        for v in (res or {}).get("values", []) or []:
-            pid = str(v.get("pid"))
-            if pid in by_pid or v.get("value") is None:
-                continue
-            by_pid[pid] = v.get("value")
+        by_pid = _fetch_fact_rows(neid, wanted)
 
         ref_neids: list[str] = []
         pending_refs: list[tuple[str, str]] = []  # (prop_name, padded_neid)
         for nm, pid, vtype in wanted:
-            raw = by_pid.get(str(pid))
-            if raw is None:
+            row = by_pid.get(str(pid))
+            if row is None:
                 continue
+            details[nm] = {
+                "pid": row.get("pid"),
+                "efid": row.get("efid"),
+                "attributes": row.get("attributes"),
+                "recorded_at": row.get("recorded_at"),
+            }
+            raw = row.get("value")
             if _is_reference(vtype):
                 padded = pad_neid(raw)
                 pending_refs.append((nm, padded))
@@ -432,7 +580,12 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
             for nm, padded in pending_refs:
                 values[nm] = name_map.get(padded, padded)
 
-        return {"neid": neid, "values": values, "unknown_properties": unknown}
+        return {
+            "neid": neid,
+            "values": values,
+            "details": details,
+            "unknown_properties": unknown,
+        }
     except Exception as e:
         return {"error": f"Failed to fetch properties for {neid}: {e}"}
 

@@ -32,10 +32,38 @@ Deployment:
 import os
 
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 import elemental
 
 mcp = FastMCP("elemental-query")
+
+
+@mcp.custom_route("/citations", methods=["POST"])
+async def citations_route(request: Request) -> JSONResponse:
+    """On-demand source citations for an entity's properties.
+
+    Body: {"neid": str, "properties": [str, ...]}
+    Returns: {"neid", "citations": {prop: rendered_citation}}
+
+    Kept off the MCP tool surface (and out of the agent's hot path) on purpose:
+    rendering is a per-fact round-trip to the QS provenance endpoints and only
+    matters when a human inspects a result, so the UI calls this directly.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    neid = body.get("neid")
+    properties = body.get("properties")
+    if not neid or not isinstance(properties, list):
+        return JSONResponse(
+            {"error": "body requires { neid: str, properties: [str, ...] }"},
+            status_code=400,
+        )
+    result = elemental.render_property_citations(str(neid), [str(p) for p in properties])
+    return JSONResponse(result)
 
 
 @mcp.tool()
@@ -138,7 +166,15 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
         properties: Property names to fetch (from the schema tools).
 
     Returns:
-        {"neid", "values": {prop: value_or_null}, "unknown_properties": [...]}
+        {"neid",
+         "values": {prop: value_or_null},
+         "details": {prop: {"pid", "efid", "attributes", "recorded_at"} | null},
+         "unknown_properties": [...]}
+        `values` holds the resolved value (references → names); `details` carries
+        the chosen fact's provenance — its property id (pid), entity-fact id
+        (efid), any fact attributes, and when it was recorded. Rendered source
+        citations are fetched separately, on demand (see the `/citations`
+        route), so normal property fetches stay fast.
     """
     return elemental.get_entity_properties(neid, properties)
 

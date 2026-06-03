@@ -73,7 +73,7 @@
                                     v-if="liveResults[q.id]?.trace"
                                     size="x-small"
                                     variant="tonal"
-                                    @click="openTrace(q.id)"
+                                    :to="`/result/${q.id}`"
                                 >
                                     {{ liveResults[q.id]?.toolCallCount ?? 0 }}
                                     <v-icon end size="small">mdi-magnify</v-icon>
@@ -120,23 +120,6 @@
             <QueryEditDialog :existing="editorTarget" @close="editorOpen = false" @save="onSave" />
         </v-dialog>
 
-        <v-dialog v-model="traceOpen" max-width="820" scrollable>
-            <v-card>
-                <v-card-title class="d-flex align-center">
-                    <span>Agent trace</span>
-                    <v-spacer />
-                    <v-btn icon variant="text" @click="traceOpen = false">
-                        <v-icon>mdi-close</v-icon>
-                    </v-btn>
-                </v-card-title>
-                <v-divider />
-                <v-card-text class="trace-dialog-body">
-                    <div v-if="traceTarget" class="trace-question">{{ traceTarget.question }}</div>
-                    <QueryTraceViewer :trace="traceTarget?.trace" />
-                </v-card-text>
-            </v-card>
-        </v-dialog>
-
         <v-dialog v-model="confirmOpen" max-width="420">
             <v-card>
                 <v-card-title>Delete query?</v-card-title>
@@ -159,12 +142,21 @@
 </template>
 
 <script setup lang="ts">
-    import { computed, reactive, ref } from 'vue';
+    import { computed, ref } from 'vue';
     import type { AnswerExpectation, QueryDef, QueryResult } from '~/types/queryrunner';
     import { describeExpectation } from '~/types/queryrunner';
 
-    const { queries, runs, addQuery, updateQuery, deleteQuery, runQuery, runAll } =
-        useQueryRunner();
+    const {
+        queries,
+        runs,
+        liveResults,
+        recordResult,
+        addQuery,
+        updateQuery,
+        deleteQuery,
+        runQuery,
+        runAll,
+    } = useQueryRunner();
     const { show: notify } = useNotification();
 
     const editorOpen = ref(false);
@@ -173,12 +165,6 @@
     const deleteTarget = ref<QueryDef | null>(null);
     const runningOne = ref<string | null>(null);
     const runningAll = ref(false);
-
-    const traceOpen = ref(false);
-    const traceTargetId = ref<string | null>(null);
-
-    // queryId → most recent result observed THIS SESSION (carries the trace).
-    const liveResults = reactive<Record<string, QueryResult>>({});
 
     const lastResultByQuery = computed(() => {
         const map: Record<string, QueryResult> = {};
@@ -191,16 +177,7 @@
     });
 
     function result(id: string): QueryResult | undefined {
-        return liveResults[id] ?? lastResultByQuery.value[id];
-    }
-
-    const traceTarget = computed(() =>
-        traceTargetId.value ? liveResults[traceTargetId.value] : null
-    );
-
-    function openTrace(id: string) {
-        traceTargetId.value = id;
-        traceOpen.value = true;
+        return liveResults.value[id] ?? lastResultByQuery.value[id];
     }
 
     function openNew() {
@@ -247,7 +224,7 @@
         runningOne.value = q.id;
         try {
             const r = await runQuery(q);
-            liveResults[q.id] = r;
+            recordResult(r);
             const tone = r.error ? 'warning' : r.pass ? 'success' : 'error';
             notify(`"${q.name || q.question}": ${r.pass ? 'pass' : 'fail'}`, tone);
         } finally {
@@ -262,7 +239,7 @@
             const run = await runAll();
             // runAll strips traces from the persisted run; re-run is not needed
             // — but we still want session traces, so reflect the run results.
-            for (const r of run.results) liveResults[r.queryId] = r;
+            for (const r of run.results) recordResult(r);
             const total = run.results.length;
             notify(
                 `Run complete: ${run.passCount}/${total} passed`,
@@ -318,14 +295,5 @@
 
     .action-cell {
         white-space: nowrap;
-    }
-
-    .trace-dialog-body {
-        max-height: 70vh;
-    }
-
-    .trace-question {
-        font-weight: 500;
-        margin-bottom: 12px;
     }
 </style>

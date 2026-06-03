@@ -52,6 +52,23 @@ export interface ToolCallTrace {
 }
 
 /**
+ * Logs emitted by one component of the stack during a single query. Captured
+ * by diffing each component's logfile across the agent call (see
+ * `server/utils/stackLogs.ts`), so the lines are exactly what that process
+ * printed while answering this question.
+ */
+export interface StackLog {
+    /** Stable key for the component, e.g. 'ui' | 'agent' | 'mcp'. */
+    source: string;
+    /** Human label for the UI. */
+    label: string;
+    /** The lines that component printed during this query (ANSI-stripped). */
+    lines: string[];
+    /** Set when the source couldn't be captured (e.g. logfile not present). */
+    note?: string;
+}
+
+/**
  * Everything we captured about a single agent run — the navigation record.
  * Returned inline on the live result and persisted in full to Postgres (when
  * configured) so a run's behaviour can be inspected and optimised later.
@@ -73,6 +90,12 @@ export interface QueryTrace {
     reasoning?: string;
     /** Error from the agent-call path (transport / config / parse). */
     agentError?: string;
+    /**
+     * Per-component logs captured during this query (UI server, agent,
+     * MCP). Absent on traces captured before log capture existed, and empty
+     * for components whose logfiles aren't being written (e.g. in prod).
+     */
+    stackLogs?: StackLog[];
 }
 
 export interface QueryResult {

@@ -248,9 +248,15 @@ def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
         assert "8" in form["pids"] and "313" in form["pids"]
         return {
             "values": [
-                {"pid": 8, "value": "Apple Inc."},
-                {"pid": 8, "value": "DUPLICATE — must be ignored"},
-                {"pid": 313, "value": "123"},  # reference NEID (unpadded)
+                {
+                    "pid": 8,
+                    "value": "Apple Inc.",
+                    "efid": "efid-name-1",
+                    "attributes": {"source": "edgar"},
+                    "recorded_at": "2020-01-01T00:00:00Z",
+                },
+                {"pid": 8, "value": "DUPLICATE — must be ignored", "efid": "efid-name-2"},
+                {"pid": 313, "value": "123", "efid": "efid-country-1"},  # reference NEID
             ]
         }
 
@@ -267,6 +273,103 @@ def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
     assert out["values"]["name"] == "Apple Inc."  # first-wins dedup
     assert out["values"]["country"] == "United States"  # nindex resolved to name
     assert out["unknown_properties"] == ["bogus"]
+
+    # details carries the chosen fact's provenance (efid / attributes / pid /
+    # recorded_at), and reflects the SAME first-wins row used for the value.
+    assert out["details"]["name"] == {
+        "pid": 8,
+        "efid": "efid-name-1",
+        "attributes": {"source": "edgar"},
+        "recorded_at": "2020-01-01T00:00:00Z",
+    }
+    # reference fact: efid surfaced even though the value resolved to a name;
+    # missing attributes/recorded_at default to None (the API omits them).
+    assert out["details"]["country"]["pid"] == 313
+    assert out["details"]["country"]["efid"] == "efid-country-1"
+    assert out["details"]["country"]["attributes"] is None
+    # unknown property is never requested → absent from values and details.
+    assert "bogus" not in out["details"]
+    assert "bogus" not in out["values"]
+
+
+def test_get_entity_properties_does_not_fetch_citations(monkeypatch):
+    """Citations are deliberately NOT fetched inline — only the properties
+    endpoint is hit, never the provenance match/render endpoints."""
+
+    def fake_post_form(path, form):
+        assert path == "elemental/entities/properties", f"unexpected call to {path}"
+        return {"values": [{"pid": 8, "value": "Apple Inc.", "efid": "555"}]}
+
+    monkeypatch.setattr(elemental, "_post_form", fake_post_form)
+    monkeypatch.setattr(elemental, "_post_json", lambda p, b: {"results": {}})
+    out = elemental.get_entity_properties("999", ["name"])
+    assert out["values"]["name"] == "Apple Inc."
+    assert "citation" not in out["details"]["name"]
+
+
+def test_render_property_citations_matches_then_renders(monkeypatch):
+    """render_property_citations re-fetches facts, matches each to a provenance
+    trail, and renders matched trails to citations (1:1, in order)."""
+    captured: dict[str, object] = {}
+
+    def fake_post_form(path, form):
+        if path == "elemental/entities/properties":
+            return {
+                "values": [
+                    {"pid": 8, "value": "Apple Inc.", "efid": "555", "recorded_at": "t1"},
+                    {"pid": 42, "value": "394328000000", "efid": "777"},
+                ]
+            }
+        if path == "elemental/provenance/match":
+            captured["match"] = json.loads(form["quads"])
+            # 1:1 with quads, same order: name matches, revenue does not.
+            return {
+                "results": [
+                    {"efid": "555", "record_index": 1, "atom_index": 2},
+                    {"error": "no matching quad"},
+                ]
+            }
+        if path == "elemental/provenance/render":
+            captured["render"] = json.loads(form["trails"])
+            return {
+                "results": [
+                    {
+                        "citation": {
+                            "source": "edgar",
+                            "subject": "Apple Inc.",
+                            "url": "https://sec.gov/...",
+                        }
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(elemental, "_post_form", fake_post_form)
+
+    out = elemental.render_property_citations("999", ["name", "revenue"])
+    assert out["neid"] == "00000000000000000999"
+
+    # Match quad carries the entity nindex (int of the NEID) + the fact's efid
+    # as a string, mirroring moongoose's buildMatchQuads.
+    name_quad = next(q for q in captured["match"] if q["pid"] == 8)
+    assert name_quad["nindex"] == 999
+    assert name_quad["efid"] == "555"
+    assert name_quad["value"] == "Apple Inc."
+    # Only the matched fact produces a render trail.
+    assert captured["render"] == [{"efid": "555", "record_index": 1, "atom_index": 2}]
+
+    # Matched property has a citation; unmatched one is absent.
+    assert out["citations"]["name"]["source"] == "edgar"
+    assert "revenue" not in out["citations"]
+
+
+def test_render_property_citations_all_unknown_is_empty(monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("should not hit the network for unknown props")
+
+    monkeypatch.setattr(elemental, "_post_form", fail)
+    out = elemental.render_property_citations("1", ["totally_made_up"])
+    assert out["citations"] == {}
 
 
 def test_get_entity_properties_all_unknown_makes_no_http_call(monkeypatch):

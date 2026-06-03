@@ -190,6 +190,14 @@ export default defineNuxtConfig({
         // `NUXT_QUERY_AGENT_ID`.
         queryAgentId: '',
 
+        // elemental-query MCP base URL (server-only), used by the on-demand
+        // citations endpoint to reach the MCP server's `/citations` route.
+        // The same URL the agent connects to (ending in `/mcp`); the route is
+        // derived by swapping the `/mcp` suffix for `/citations`. Set via
+        // `NUXT_QUERY_MCP_URL` (e.g. http://127.0.0.1:8080/mcp in local dev).
+        // Empty → citations are unavailable and the UI degrades gracefully.
+        queryMcpUrl: '',
+
         public: {
             qsApiKey: bcYaml.qsApiKey,
             // App Identity — broadchurch.yaml provides defaults for provisioned projects
