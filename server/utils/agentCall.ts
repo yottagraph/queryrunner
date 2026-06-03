@@ -249,8 +249,11 @@ async function callAgentEngine(opts: {
     return { text, sessionId, toolCalls, hosting: 'agent_engine' };
 }
 
-/** Collapse a classified event into our running result accumulators. */
-function applyEvent(evt: AdkEvent, acc: { text: string; toolCalls: AgentToolCall[] }): void {
+/**
+ * Collapse a classified event into our running result accumulators.
+ * Exported for unit testing the tool-call ↔ response pairing.
+ */
+export function applyEvent(evt: AdkEvent, acc: { text: string; toolCalls: AgentToolCall[] }): void {
     const classified = classifyAdkEvent(evt);
     if (!classified) return;
     if (classified.type === 'function_call') {

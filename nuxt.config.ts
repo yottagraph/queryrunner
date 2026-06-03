@@ -249,7 +249,7 @@ export default defineNuxtConfig({
             // QueryRunner agent model label — informational, recorded on
             // each trace for A/B comparison. Keep in sync with the agent's
             // QUERY_AGENT_MODEL default. Override via NUXT_PUBLIC_QUERY_AGENT_MODEL.
-            queryAgentModel: 'gemini-3.1-flash',
+            queryAgentModel: 'gemini-2.5-flash',
 
             // App Configuration
             versionString: 'release_internal-dev',

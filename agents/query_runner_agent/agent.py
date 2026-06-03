@@ -31,7 +31,7 @@ URL + auth resolution for the MCP server:
   as a Bearer header. Localhost URLs are called without auth.
 
 Local testing:
-    export QUERY_MCP_URL=http://127.0.0.1:8080/sse   # local elemental-query
+    export QUERY_MCP_URL=http://127.0.0.1:8080/mcp   # local elemental-query
     export GOOGLE_CLOUD_PROJECT=broadchurch
     export GOOGLE_CLOUD_LOCATION=us-central1
     export GOOGLE_GENAI_USE_VERTEXAI=1
@@ -51,8 +51,9 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnecti
 logger = logging.getLogger("query_runner_agent")
 
 # The model is configurable so the harness can A/B different models without a
-# code change. Default per the QueryRunner spec: Gemini 3.1 Flash.
-MODEL = os.environ.get("QUERY_AGENT_MODEL", "gemini-3.1-flash")
+# code change. Default is gemini-2.5-flash (verified available in the tenant's
+# Vertex project; gemini-3.1-flash returned 404 there).
+MODEL = os.environ.get("QUERY_AGENT_MODEL", "gemini-2.5-flash")
 
 MCP_SERVER_NAME = "elemental-query"
 

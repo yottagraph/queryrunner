@@ -17,7 +17,13 @@ Local testing:
     cd mcp-servers/elemental-query
     pip install -r requirements.txt
     export GATEWAY_URL=... TENANT_ORG_ID=... QS_API_KEY=...
-    python server.py
+    python server.py                       # serves Streamable HTTP at /mcp
+    # equivalently, matching the production Dockerfile entry point:
+    python -m fastmcp run server:mcp --transport streamable-http --host 0.0.0.0 --port 8080
+
+The agent connects with StreamableHTTPConnectionParams, so the server MUST
+speak Streamable HTTP (the `/mcp` endpoint), NOT the legacy SSE transport —
+an SSE server would leave the agent with zero tools and no error raised.
 
 Deployment:
     Use the /deploy_mcp Cursor command.
@@ -190,4 +196,7 @@ def get_entity_name(neid: str) -> dict:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    mcp.run(transport="sse", host="0.0.0.0", port=port)
+    # Streamable HTTP (the `/mcp` endpoint), to match the agent's
+    # StreamableHTTPConnectionParams. SSE is the legacy transport and would
+    # silently leave the agent with zero tools.
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)

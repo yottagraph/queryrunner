@@ -15,7 +15,7 @@ optimisation.
 
 ```
 plaintext question
-  → query_runner_agent (Gemini 3.1 Flash, Vertex Agent Engine)
+  → query_runner_agent (Gemini 2.5 Flash, Vertex Agent Engine)
      → elemental-query MCP server (schema / resolve / search / retrieve / traverse)
         → Elemental Query Server (Portal Gateway)
   → agent returns JSON {"answer": <string|number>, "reasoning": ...}
@@ -36,7 +36,7 @@ Why this shape:
 
 ### `agents/query_runner_agent/` — the answering agent
 
-ADK agent (`gemini-3.1-flash`, override via `QUERY_AGENT_MODEL`) wired to the
+ADK agent (`gemini-2.5-flash`, override via `QUERY_AGENT_MODEL`) wired to the
 `elemental-query` MCP server via `McpToolset`
 (`StreamableHTTPConnectionParams`). Its instruction enforces the JSON answer
 contract and graph-navigation discipline (resolve entities first, discover
@@ -64,6 +64,14 @@ it with `@mcp.tool()`. Tools:
 
 Config comes from env (`GATEWAY_URL` + `TENANT_ORG_ID` + `QS_API_KEY`, or
 `ELEMENTAL_API_URL`) or `broadchurch.yaml`. Deploy with `/deploy_mcp`.
+
+The server speaks **Streamable HTTP** on the `/mcp` endpoint (not legacy SSE)
+to match the agent's `StreamableHTTPConnectionParams`; a transport mismatch
+leaves the agent with zero tools and raises no error. `QUERY_MCP_URL` must
+therefore end in `/mcp`. The `test_elemental.py` / `test_server.py` suites
+cover the tool logic and registration offline, and the agent's
+`test_query_runner_agent.py` boots this server and asserts the toolset
+connects end to end.
 
 ### `server/utils/queryAgent.ts`
 
