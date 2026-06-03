@@ -1,0 +1,131 @@
+# Dataset schema for Alpha Vantage stock market data.
+#
+# This schema describes entity types and properties produced by atomizing
+# OHLCV (open, high, low, close, volume) candlestick data from the Alpha
+# Vantage TIME_SERIES_INTRADAY and TIME_SERIES_DAILY endpoints.
+#
+# All elements are passive -- created by the atomizer from structured JSON
+# fields, not by LLM extraction.
+name: "stocks"
+description: "US equity OHLCV price data from Alpha Vantage, covering NYSE, NASDAQ, and AMEX listed securities at 15-minute and daily intervals"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "financial_instrument"
+    description: "A publicly traded equity security (common stock, preferred stock, ETF, etc.) listed on a US exchange, identified by its ticker symbol"
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    strong_id_properties: ["ticker_symbol"]
+    passive: true
+
+  - name: "organization"
+    description: "A company or entity whose equity securities are publicly traded on a US exchange"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    passive: true
+
+properties:
+  # --- Identity ---
+
+  - name: "ticker_symbol"
+    type: string
+    description: "Stock ticker symbol as listed on the exchange (e.g., AAPL, IBM, BRK-B), from the NASDAQ screener and Alpha Vantage Meta Data"
+    display_name: "Ticker Symbol"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["AAPL", "IBM", "MSFT", "BRK-B"]
+    passive: true
+
+  - name: "company_name"
+    type: string
+    description: "Full registered security name from the NASDAQ screener"
+    display_name: "Company Name"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["Apple Inc. Common Stock", "International Business Machines Corporation Common Stock"]
+    passive: true
+
+  - name: "exchange"
+    type: string
+    description: "US stock exchange where the security is listed"
+    display_name: "Exchange"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["NYSE", "NASDAQ", "AMEX"]
+    passive: true
+
+  - name: "sector"
+    type: string
+    description: "Market sector classification from the NASDAQ screener; may be empty for SPACs, warrants, and other non-standard securities"
+    display_name: "Sector"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["Technology", "Health Care", "Industrials"]
+    passive: true
+
+  - name: "industry"
+    type: string
+    description: "Industry sub-classification within the sector from the NASDAQ screener; may be empty"
+    display_name: "Industry"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["Computer Manufacturing", "Biotechnology: Laboratory Analytical Instruments"]
+    passive: true
+
+  # --- Price Data (per candle) ---
+
+  - name: "open_price"
+    type: float
+    description: "Opening price of the trading interval in USD, from Alpha Vantage field '1. open'"
+    display_name: "Open Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "high_price"
+    type: float
+    description: "Highest price reached during the trading interval in USD, from Alpha Vantage field '2. high'"
+    display_name: "High Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "low_price"
+    type: float
+    description: "Lowest price reached during the trading interval in USD, from Alpha Vantage field '3. low'"
+    display_name: "Low Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "close_price"
+    type: float
+    description: "Closing price of the trading interval in USD, from Alpha Vantage field '4. close'"
+    display_name: "Close Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "trading_volume"
+    type: float
+    description: "Number of shares traded during the interval, from Alpha Vantage field '5. volume'; stored as float per v2 convention"
+    display_name: "Trading Volume"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+relationships:
+  - name: "traded_as"
+    description: "Links a company (organization) to the financial instrument (stock ticker) under which its equity is publicly traded"
+    display_name: "Traded As"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument"]
+    examples: ["Apple Inc. traded as AAPL", "International Business Machines Corporation traded as IBM"]
+    passive: true

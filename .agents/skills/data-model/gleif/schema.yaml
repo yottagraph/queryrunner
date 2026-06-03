@@ -1,0 +1,254 @@
+# Dataset schema for GLEIF (Global Legal Entity Identifier Foundation).
+#
+# Architecture:
+#   Each GLEIF LEI record produces ONE organization record carrying all
+#   identity/registration/address properties and up to two relationship
+#   atoms (direct_parent, ultimate_parent) pointing to parent
+#   organization entities identified by their LEI strong IDs.
+#
+# All elements are passive — created by the atomizer from GLEIF API JSON,
+# not by LLM extraction.
+#
+# Source identifier: "gleif-source"
+name: "gleif"
+description: "Legal entity reference data from the Global Legal Entity Identifier Foundation — LEI records, entity metadata, addresses, registration status, and corporate ownership relationships for ~3.25M entities worldwide"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    strong_id_properties: ["lei"]
+    passive: true
+
+  - name: "financial_instrument"
+    description: "A specific asset that can be traded, such as a stock, ETF, bond, CD, or fund. Companies are organizations, NOT financial instruments. Specific currency amounts are NOT financial instruments."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    strong_id_properties: ["isin"]
+    passive: true
+
+# --- Identity properties ---
+
+properties:
+  - name: "lei"
+    type: string
+    description: "Legal Entity Identifier — a 20-character alphanumeric code uniquely identifying a legal entity in the global financial system (ISO 17442)"
+    display_name: "LEI"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["5493001KJTIIGC8Y1R12", "549300RMUDWPHCUQNE66"]
+    passive: true
+
+  - name: "jurisdiction"
+    type: string
+    description: "ISO 3166-1 or ISO 3166-2 jurisdiction code where the entity is legally registered"
+    display_name: "Jurisdiction"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["US-DE", "LU", "GB", "JP"]
+    passive: true
+
+  - name: "legal_entity_category"
+    type: string
+    description: "Classification of the legal entity type within the LEI system"
+    display_name: "Entity Category"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["GENERAL", "FUND", "BRANCH", "SOLE_PROPRIETOR"]
+    passive: true
+
+  - name: "legal_entity_status"
+    type: string
+    description: "Current status of the legal entity itself"
+    display_name: "Entity Status"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["ACTIVE", "INACTIVE", "MERGED", "RETIRED"]
+    passive: true
+
+  - name: "legal_form_code"
+    type: string
+    description: "Entity Legal Form (ELF) code from the ISO 20275 standard identifying the legal form of the entity"
+    display_name: "Legal Form Code"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["6IIM", "U8KA", "T91T"]
+    passive: true
+
+  - name: "registered_as"
+    type: string
+    description: "Registration number of the entity at its business registration authority"
+    display_name: "Registration Number"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["26036723", "B262009", "4348344"]
+    passive: true
+
+  - name: "registration_authority_id"
+    type: string
+    description: "Identifier of the business registry where the entity is registered"
+    display_name: "Registration Authority"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["RA000604", "RA000432"]
+    passive: true
+
+  - name: "entity_creation_date"
+    type: string
+    description: "Date when the legal entity was created (incorporated), as YYYY-MM-DD"
+    display_name: "Entity Creation Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["2007-06-05", "2021-12-08"]
+    passive: true
+
+  # --- Address properties ---
+
+  - name: "legal_address"
+    type: string
+    description: "Full legal (registered) address of the entity as a formatted string"
+    display_name: "Legal Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["349 Decatur Street, Atlanta, US-GA, US 30312"]
+    passive: true
+
+  - name: "headquarters_address"
+    type: string
+    description: "Full headquarters address of the entity as a formatted string"
+    display_name: "Headquarters Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["731 Lexington Avenue, New York, US-NY, US 10022"]
+    passive: true
+
+  - name: "legal_address_country"
+    type: string
+    description: "ISO 3166-1 alpha-2 country code from the entity's legal address"
+    display_name: "Legal Address Country"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["US", "LU", "GB", "DE"]
+    passive: true
+
+  - name: "headquarters_country"
+    type: string
+    description: "ISO 3166-1 alpha-2 country code from the entity's headquarters address"
+    display_name: "Headquarters Country"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["US", "LU", "GB", "DE"]
+    passive: true
+
+  # --- Registration properties ---
+
+  - name: "registration_status"
+    type: string
+    description: "Current status of the LEI registration itself, distinct from entity status"
+    display_name: "Registration Status"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["ISSUED", "LAPSED", "RETIRED", "PENDING_ARCHIVAL"]
+    passive: true
+
+  - name: "initial_registration_date"
+    type: string
+    description: "Date when the LEI was first issued, as YYYY-MM-DD"
+    display_name: "Initial Registration Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["2012-12-06", "2026-03-16"]
+    passive: true
+
+  - name: "next_renewal_date"
+    type: string
+    description: "Date by which the LEI registration must be renewed, as YYYY-MM-DD"
+    display_name: "Next Renewal Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["2027-01-25", "2027-03-16"]
+    passive: true
+
+  - name: "corroboration_level"
+    type: string
+    description: "Level of corroboration of the entity's reference data by the registration authority"
+    display_name: "Corroboration Level"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["FULLY_CORROBORATED", "PARTIALLY_CORROBORATED", "ENTITY_SUPPLIED_ONLY"]
+    passive: true
+
+  # --- Mapped identifiers ---
+
+  - name: "bic_code"
+    type: string
+    description: "SWIFT/BIC code mapped to this LEI, available for financial institutions"
+    display_name: "BIC Code"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["DEUTDEFF", "BNPAFRPP"]
+    passive: true
+
+  - name: "ocid"
+    type: string
+    description: "OpenCorporates company identifier mapped to this LEI"
+    display_name: "OpenCorporates ID"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["us_de/4348344", "gb/12345678"]
+    passive: true
+
+  - name: "isin"
+    type: string
+    description: "International Securities Identification Number (ISO 6166) uniquely identifying this financial instrument"
+    display_name: "ISIN"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["US0378331005", "GB0002634946", "DE0007236101"]
+    passive: true
+
+  - name: "successor_lei"
+    type: string
+    description: "LEI of the successor entity when this entity has been merged into or transferred to another"
+    display_name: "Successor LEI"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["549300RMUDWPHCUQNE66"]
+    passive: true
+
+# --- Relationships ---
+
+relationships:
+  - name: "issued_security"
+    description: "The organization has issued this financial instrument, linked via GLEIF-ANNA ISIN-LEI daily mapping. To find the issuer of a security, query inversely: find the entity whose issued_security points to the instrument."
+    display_name: "Issued Security"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "direct_parent"
+    description: "The entity is directly owned or controlled by the target parent entity (GLEIF Level 2). To find subsidiaries of a company, query inversely: find all entities whose direct_parent is that company."
+    display_name: "Direct Parent"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "ultimate_parent"
+    description: "The entity is ultimately owned or controlled by the target parent entity at the top of the corporate hierarchy (GLEIF Level 2). To find all subsidiaries under a parent, query inversely: find all entities whose ultimate_parent is that company."
+    display_name: "Ultimate Parent"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+attributes: []

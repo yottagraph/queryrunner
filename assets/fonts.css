@@ -11,16 +11,16 @@
 
 /* Thin - 100 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Thin.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Thin.otf') format('opentype');
     font-weight: 100;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-ThinItalic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-ThinItalic.otf') format('opentype');
     font-weight: 100;
     font-style: italic;
     font-display: swap;
@@ -28,16 +28,16 @@
 
 /* Light - 300 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Light.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Light.otf') format('opentype');
     font-weight: 300;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-LightItalic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-LightItalic.otf') format('opentype');
     font-weight: 300;
     font-style: italic;
     font-display: swap;
@@ -45,16 +45,16 @@
 
 /* Regular - 400 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Regular.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Regular.otf') format('opentype');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Italic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Italic.otf') format('opentype');
     font-weight: 400;
     font-style: italic;
     font-display: swap;
@@ -62,16 +62,16 @@
 
 /* Medium - 500 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Medium.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Medium.otf') format('opentype');
     font-weight: 500;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-MediumItalic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-MediumItalic.otf') format('opentype');
     font-weight: 500;
     font-style: italic;
     font-display: swap;
@@ -79,16 +79,16 @@
 
 /* Bold - 700 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Bold.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Bold.otf') format('opentype');
     font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-BoldItalic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-BoldItalic.otf') format('opentype');
     font-weight: 700;
     font-style: italic;
     font-display: swap;
@@ -96,16 +96,16 @@
 
 /* Black - 900 */
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-Black.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-Black.otf') format('opentype');
     font-weight: 900;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk";
-    src: url("/fonts/FKGrotesk-BlackItalic.otf") format("opentype");
+    font-family: 'FK Grotesk';
+    src: url('/fonts/FKGrotesk-BlackItalic.otf') format('opentype');
     font-weight: 900;
     font-style: italic;
     font-display: swap;
@@ -115,16 +115,16 @@
 
 /* Thin - 100 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Thin.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Thin.otf') format('opentype');
     font-weight: 100;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-ThinItalic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-ThinItalic.otf') format('opentype');
     font-weight: 100;
     font-style: italic;
     font-display: swap;
@@ -132,16 +132,16 @@
 
 /* Light - 300 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Light.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Light.otf') format('opentype');
     font-weight: 300;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-LightItalic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-LightItalic.otf') format('opentype');
     font-weight: 300;
     font-style: italic;
     font-display: swap;
@@ -149,16 +149,16 @@
 
 /* Regular - 400 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Regular.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Regular.otf') format('opentype');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Italic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Italic.otf') format('opentype');
     font-weight: 400;
     font-style: italic;
     font-display: swap;
@@ -166,16 +166,16 @@
 
 /* Medium - 500 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Medium.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Medium.otf') format('opentype');
     font-weight: 500;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-MediumItalic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-MediumItalic.otf') format('opentype');
     font-weight: 500;
     font-style: italic;
     font-display: swap;
@@ -183,16 +183,16 @@
 
 /* Bold - 700 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Bold.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Bold.otf') format('opentype');
     font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-BoldItalic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-BoldItalic.otf') format('opentype');
     font-weight: 700;
     font-style: italic;
     font-display: swap;
@@ -200,16 +200,16 @@
 
 /* Black - 900 */
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-Black.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-Black.otf') format('opentype');
     font-weight: 900;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "FK Grotesk Mono";
-    src: url("/fonts/FKGroteskMono-BlackItalic.otf") format("opentype");
+    font-family: 'FK Grotesk Mono';
+    src: url('/fonts/FKGroteskMono-BlackItalic.otf') format('opentype');
     font-weight: 900;
     font-style: italic;
     font-display: swap;

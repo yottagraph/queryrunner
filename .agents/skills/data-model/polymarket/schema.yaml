@@ -1,0 +1,601 @@
+# Dataset schema for Polymarket prediction market data.
+#
+# This schema defines entities extracted from prediction market event text
+# (via LLM) and structured market data (via atomizer). The LLM extracts
+# real-world entities from event titles and descriptions so they can be
+# linked to entities from other sources (news, SEC filings, etc.).
+#
+# Structured market data (prices, volumes, outcomes) is atomized directly
+# from the Gamma API response without LLM involvement.
+name: "polymarket"
+description: >-
+  Prediction market events and their associated entities, extracted from
+  Polymarket via the Gamma API. IMPORTANT: The source text describes
+  prediction markets with betting lines, spreads, over/unders, and point
+  totals. These are properties of the market itself and must NOT be
+  extracted as entities. Only extract real-world entities (people,
+  companies, places, etc.) that the markets are about. Other statistics
+  will be extracted programmatically from the structured API data.
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+# =============================================================================
+# ACTIVE FLAVORS — extracted by the LLM from event/market text
+# =============================================================================
+
+flavors:
+  - name: "person"
+    description: "A real person as opposed to a fictional character, such as a CEO, politician, or public figure"
+    display_name: "Person"
+    mergeability: not_mergeable
+    examples: ["Donald Trump", "Elon Musk", "Jerome Powell", "LeBron James"]
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    examples: ["Tesla", "Federal Reserve", "NATO", "OpenAI", "NBA", "Dallas Mavericks", "Democratic Party"]
+
+  - name: "location"
+    description: "A specific named geographic location such as a city, country, region, or landmark"
+    display_name: "Location"
+    mergeability: not_mergeable
+    examples: ["United States", "China", "Pennsylvania", "European Union", "Middle East"]
+
+  - name: "financial_instrument"
+    description: "A specific asset that can be traded, such as a stock, ETF, bond, CD, or fund. Companies are organizations, NOT financial instruments. Specific currency amounts are NOT financial instruments."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    examples: ["Bitcoin", "Ethereum", "S&P 500", "AAPL", "Gold futures", "BTC/USDT"]
+
+  - name: "product"
+    description: "A specific tangible product being sold or marketed by an organization"
+    display_name: "Product"
+    mergeability: not_mergeable
+    examples: ["GPT-5", "iPhone", "Starlink", "Oppenheimer", "Squid Game", "Claude"]
+
+  - name: "competition"
+    description: >-
+      A named recurring competition, championship, tournament, or award
+      ceremony. Use for the competition itself, not the organizing body (use
+      organization for that). Individual games or matches are NOT competitions
+      — they are events.
+    display_name: "Competition"
+    mergeability: not_mergeable
+    examples: ["Stanley Cup", "Super Bowl", "March Madness", "Academy Awards", "World Cup", "Grammy Awards"]
+
+  - name: "conflict"
+    description: >-
+      A named geopolitical or military conflict, war, or crisis. Use for the
+      conflict itself as an ongoing situation, not for the countries or groups
+      involved (use organization or location for those). Abstract concepts like
+      "terrorism" or "civil unrest" are NOT conflicts unless they refer to a
+      specific named conflict. Sporting events are NOT conflicts — use competition.
+      General military actions like "bombing" or "shelling" are NOT conflicts - they
+      are not entities.
+    display_name: "Conflict"
+    mergeability: not_mergeable
+    examples: ["Russia-Ukraine war", "Israel-Gaza conflict", "Syrian civil war", "Yemen conflict"]
+
+  # PASSIVE FLAVORS — created by the atomizer from structured API data
+
+  - name: "prediction_event"
+    description: "A Polymarket prediction event containing one or more tradeable markets"
+    display_name: "Prediction Event"
+    mergeability: not_mergeable
+    strong_id_properties: ["polymarket_id"]
+    passive: true
+
+  - name: "prediction_market"
+    description: "A tradeable prediction market (question) within a Polymarket event"
+    display_name: "Prediction Market"
+    mergeability: not_mergeable
+    strong_id_properties: ["polymarket_id"]
+    passive: true
+
+  - name: "prediction_series"
+    description: "A series of related Polymarket prediction events (e.g., recurring weekly markets)"
+    display_name: "Prediction Series"
+    mergeability: not_mergeable
+    strong_id_properties: ["polymarket_id"]
+    passive: true
+
+# =============================================================================
+# ACTIVE RELATIONSHIPS — extracted by the LLM
+# =============================================================================
+
+relationships:
+  - name: "head_of"
+    description: "A person is the head of an organization or location, e.g., President, CEO, or equivalent top leadership role"
+    display_name: "Head Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization", "location"]
+
+  - name: "works_at"
+    description: "A person is employed by, or is a founder of an organization. Not to be used for heads or board members of organizations."
+    display_name: "Works At"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+
+  - name: "invests_in"
+    description: "An entity invests in, finances, or owns shares or stocks of another entity"
+    display_name: "Invests In"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["organization", "financial_instrument"]
+
+  - name: "competes_with"
+    description: "Two entities compete with each other, e.g., two competing companies, sports teams, or products"
+    display_name: "Competes With"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["person", "organization", "location"]
+
+  - name: "competes_in"
+    description: "An entity competes in a named competition or championship"
+    display_name: "Competes In"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["competition"]
+
+  - name: "is_located_at"
+    description: "An entity is located at, operates in, resides in, is headquartered in, was born in, visits, or died in a location"
+    display_name: "Located At"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "conflict"]
+    target_flavors: ["location"]
+
+  - name: "acquires"
+    description: "An organization acquires another organization"
+    display_name: "Acquires"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+
+  - name: "partnered_with"
+    description: "Two entities partner with each other, e.g., two organizations co-hosting an event or forming a joint venture"
+    display_name: "Partnered With"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["person", "organization"]
+
+  - name: "owns"
+    description: "A person or organization owns or controls another organization or location (such as real estate)."
+    display_name: "Owns"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["organization", "location", "financial_instrument", "product"]
+
+  - name: "produces"
+    description: "An organization owns, develops, or markets a product"
+    display_name: "Produces"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["product"]
+
+  - name: "involved_in"
+    description: "An entity is involved in or a party to a conflict"
+    display_name: "Involved In"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["conflict"]
+
+  # PASSIVE RELATIONSHIPS — created by the atomizer
+
+  - name: "appears_in"
+    description: "An entity or event appears in a source document"
+    display_name: "Appears In"
+    mergeability: not_mergeable
+    target_flavors: ["prediction_event", "prediction_market"]
+    passive: true
+
+  - name: "has_market"
+    description: "A prediction event contains a prediction market"
+    display_name: "Has Market"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    target_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "belongs_to_series"
+    description: "A prediction event belongs to a recurring series"
+    display_name: "Belongs To Series"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    target_flavors: ["prediction_series"]
+    passive: true
+
+# =============================================================================
+# PROPERTIES
+# =============================================================================
+
+properties:
+  # ACTIVE — LLM-extracted
+
+  - name: "sentiment"
+    type: float
+    description: "Classify the financial sentiment of the source text. Positive sentiment indicates events like revenue growth, strategic partnerships, or milestone achievement. Negative sentiment indicates events like economic downturn, natural disasters, or adverse market conditions."
+    display_name: "Sentiment"
+    mergeability: not_mergeable
+    extraction_config:
+      level: document
+      scoring:
+        scale:
+          labels:
+            - value: -1.0
+              name: "strongly negative"
+            - value: -0.5
+              name: "slightly negative"
+            - value: 0.0
+              name: "neutral"
+            - value: 0.5
+              name: "slightly positive"
+            - value: 1.0
+              name: "strongly positive"
+
+  - name: "entity_sentiment"
+    type: float
+    description: "Classify the financial sentiment of a specific entity mentioned in the source text. Positive sentiment indicates events like revenue growth, strategic partnerships, or milestone achievement. Negative sentiment indicates events like economic downturn, natural disasters, or adverse market conditions. If the entity is irrelevant to the subject matter, assign a neutral score."
+    display_name: "Entity Sentiment"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "location", "product", "financial_instrument"]
+    extraction_config:
+      level: entity
+      scoring:
+        scale:
+          labels:
+            - value: -1.0
+              name: "strongly negative"
+            - value: -0.5
+              name: "slightly negative"
+            - value: 0.0
+              name: "neutral"
+            - value: 0.5
+              name: "slightly positive"
+            - value: 1.0
+              name: "strongly positive"
+
+  # PASSIVE — prediction_event properties
+
+  - name: "title"
+    type: string
+    description: "Title of the entity"
+    display_name: "Title"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_description"
+    type: string
+    description: "Description of the prediction event"
+    display_name: "Event Description"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "category"
+    type: string
+    description: "Classification or category for the event"
+    display_name: "Category"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_status"
+    type: string
+    description: "Status of the prediction event: active, closed, or archived"
+    display_name: "Event Status"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_volume"
+    type: float
+    description: "Total trading volume in USD for the prediction event"
+    display_name: "Event Volume"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_volume_24h"
+    type: float
+    description: "24-hour trading volume in USD for the prediction event"
+    display_name: "Event Volume (24h)"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_liquidity"
+    type: float
+    description: "Current liquidity in USD for the prediction event"
+    display_name: "Event Liquidity"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "event_open_interest"
+    type: float
+    description: "Open interest in USD for the prediction event"
+    display_name: "Event Open Interest"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "slug"
+    type: string
+    description: "URL slug for the entity on Polymarket"
+    display_name: "Slug"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event", "prediction_series"]
+    passive: true
+
+  - name: "url"
+    type: string
+    description: "Full URL on Polymarket"
+    display_name: "URL"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "has_tag"
+    type: string
+    description: "A tag associated with the prediction event"
+    display_name: "Tag"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event"]
+    passive: true
+
+  - name: "polymarket_id"
+    type: string
+    description: "The unique Polymarket identifier for this entity (event ID, market condition ID, or series ID)"
+    display_name: "Polymarket ID"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_event", "prediction_market", "prediction_series"]
+    passive: true
+
+  # PASSIVE — prediction_market properties
+
+  - name: "question"
+    type: string
+    description: "The market question being predicted"
+    display_name: "Question"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "outcomes"
+    type: string
+    description: "Possible outcomes for the market (e.g., 'Yes, No')"
+    display_name: "Outcomes"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "outcome_prices"
+    type: string
+    description: "Current probability/prices for each outcome (e.g., '0.65, 0.35')"
+    display_name: "Outcome Prices"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "market_status"
+    type: string
+    description: "Status of the market: active or closed"
+    display_name: "Market Status"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "market_volume"
+    type: float
+    description: "Total trading volume in USD for the market"
+    display_name: "Market Volume"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "market_volume_24h"
+    type: float
+    description: "24-hour trading volume in USD for the market"
+    display_name: "Market Volume (24h)"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "market_liquidity"
+    type: float
+    description: "Current liquidity in USD for the market"
+    display_name: "Market Liquidity"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "best_bid"
+    type: float
+    description: "Best bid price (probability) for the market"
+    display_name: "Best Bid"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "best_ask"
+    type: float
+    description: "Best ask price (probability) for the market"
+    display_name: "Best Ask"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "last_trade_price"
+    type: float
+    description: "Last trade price (probability) for the market"
+    display_name: "Last Trade Price"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "spread"
+    type: float
+    description: "Bid-ask spread for the market"
+    display_name: "Spread"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "sports_market_type"
+    type: string
+    description: "Type of sports market (e.g., spread, total, moneyline)"
+    display_name: "Sports Market Type"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "line"
+    type: float
+    description: "The betting line for the market (e.g., -1.5 for a spread, 6.5 for an over/under)"
+    display_name: "Line"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  - name: "group_item_threshold"
+    type: string
+    description: "Threshold value for grouped market items (e.g., price targets, stat lines)"
+    display_name: "Threshold"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_market"]
+    passive: true
+
+  # PASSIVE — prediction_series properties
+
+  - name: "series_title"
+    type: string
+    description: "Title of the prediction series"
+    display_name: "Series Title"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_type"
+    type: string
+    description: "Type of the prediction series"
+    display_name: "Series Type"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_recurrence"
+    type: string
+    description: "Recurrence pattern of the series (e.g., daily, weekly)"
+    display_name: "Series Recurrence"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_status"
+    type: string
+    description: "Status of the series: active, closed, or archived"
+    display_name: "Series Status"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_volume"
+    type: float
+    description: "Total trading volume in USD for the series"
+    display_name: "Series Volume"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_volume_24h"
+    type: float
+    description: "24-hour trading volume in USD for the series"
+    display_name: "Series Volume (24h)"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+  - name: "series_liquidity"
+    type: float
+    description: "Current liquidity in USD for the series"
+    display_name: "Series Liquidity"
+    mergeability: not_mergeable
+    domain_flavors: ["prediction_series"]
+    passive: true
+
+# =============================================================================
+# ATTRIBUTES
+# =============================================================================
+
+attributes:
+  - property: "appears_in"
+    name: "event_id"
+    type: string
+    description: "Polymarket event ID"
+    display_name: "Event ID"
+    mergeability: not_mergeable
+
+  - property: "appears_in"
+    name: "sentiment"
+    type: float
+    description: "Entity-level sentiment in the context of the source document"
+    display_name: "Sentiment"
+    mergeability: not_mergeable
+
+  - property: "sentiment"
+    name: "reasoning"
+    type: string
+    description: "Reasoning behind the sentiment score"
+    display_name: "Reasoning"
+    mergeability: not_mergeable
+
+# =============================================================================
+# EVENTS — prediction-market-relevant event categories
+# =============================================================================
+
+events:
+  - name: "Election outcome"
+    description: "A prediction about the outcome of a political election"
+    metadata: { severity: high }
+  - name: "IPO"
+    description: "A prediction about an initial public offering"
+    metadata: { severity: high }
+  - name: "Mergers & acquisitions"
+    description: "A prediction about a corporate merger or acquisition"
+    metadata: { severity: high }
+  - name: "Geopolitical event"
+    description: "A prediction about a significant geopolitical event (war, sanctions, treaties)"
+    metadata: { severity: high }
+  - name: "Regulatory decision"
+    description: "A prediction about a government or regulatory body decision"
+    metadata: { severity: high }
+  - name: "Major leadership change"
+    description: "A prediction about a leadership change at a major organization or government"
+    metadata: { severity: medium }
+  - name: "Change in government policy"
+    description: "A prediction about a change in government policy (tariffs, legislation, executive orders)"
+    metadata: { severity: medium }
+  - name: "Market milestone"
+    description: "A prediction about a financial market milestone (price target, index level, market cap)"
+    metadata: { severity: medium }
+  - name: "Technological milestone"
+    description: "A prediction about achieving a technological milestone (product launch, scientific breakthrough)"
+    metadata: { severity: medium }
+  - name: "Natural disaster"
+    description: "A prediction about a natural disaster or severe weather event"
+    metadata: { severity: high }
+  - name: "Sports outcome"
+    description: "A prediction about the outcome of a sporting event or season"
+    metadata: { severity: low }
+  - name: "Entertainment"
+    description: "A prediction about entertainment (award shows, box office, releases)"
+    metadata: { severity: low }

@@ -27,7 +27,7 @@ main:
         - init:
               assign:
                   - project: ${sys.get_env("GOOGLE_CLOUD_PROJECT")}
-                  - region: "us-central1"
+                  - region: 'us-central1'
                   - limit: ${default(map.get(input, "limit"), 100)}
                   - num_shards: ${default(map.get(input, "shards"), 4)}
 
@@ -93,7 +93,7 @@ main:
         - log_done:
               call: sys.log
               args:
-                  text: "example_workflow complete"
+                  text: 'example_workflow complete'
                   severity: INFO
 
         - return_result:

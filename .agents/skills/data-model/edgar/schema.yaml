@@ -1,0 +1,1984 @@
+# Dataset schema for SEC EDGAR structured data extraction.
+#
+# Edgar is a structured source — all entities, properties, and relationships
+# are built deterministically by the atomizer from SEC API data (XBRL, JSON,
+# HTML/XML filings). There is no LLM extraction, so all elements are passive
+# and no extraction_config is used.
+#
+# XBRL financial properties (~40 concepts) are defined in the field map
+# (fetchlib/edgar_field_map.go XBRLConceptMappings) and validated against the
+# KG schema. Only the most commonly queried XBRL properties are listed here;
+# the full set is authoritative in the field map.
+name: "sec"
+description: "SEC EDGAR filings: company registrations, XBRL financial facts, insider ownership, institutional holdings, and corporate events"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: open
+
+# =============================================================================
+# FLAVORS
+# =============================================================================
+
+flavors:
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    strong_id_properties: ["company_cik"]
+    passive: true
+
+  - name: "10_k"
+    namespace: "sec"
+    description: "Annual report filing (Form 10-K)"
+    display_name: "10-K"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "10_q"
+    namespace: "sec"
+    description: "Quarterly report filing (Form 10-Q)"
+    display_name: "10-Q"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "20_f"
+    namespace: "sec"
+    description: "Foreign private issuer annual report (Form 20-F)"
+    display_name: "20-F"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "8_k"
+    namespace: "sec"
+    description: "Current report filing (Form 8-K)"
+    display_name: "8-K"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "form_3"
+    namespace: "sec"
+    description: "Initial statement of beneficial ownership"
+    display_name: "Form 3"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "form_4"
+    namespace: "sec"
+    description: "Statement of changes in beneficial ownership"
+    display_name: "Form 4"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "sc_13d"
+    namespace: "sec"
+    description: "Beneficial ownership report (activist)"
+    display_name: "SC 13D"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "sc_13g"
+    namespace: "sec"
+    description: "Beneficial ownership report (passive)"
+    display_name: "SC 13G"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "13f_hr"
+    namespace: "sec"
+    description: "Institutional investment manager holdings report"
+    display_name: "13F-HR"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "def_14a"
+    namespace: "sec"
+    description: "Definitive proxy statement"
+    display_name: "DEF 14A"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "6_k"
+    namespace: "sec"
+    description: "Foreign private issuer current report (Form 6-K)"
+    display_name: "6-K"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "40_f"
+    namespace: "sec"
+    description: "Canadian cross-border annual report (Form 40-F)"
+    display_name: "40-F"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "filing"
+    namespace: "sec"
+    description: "SEC filing (generic, for form types without a specific modeled flavor)"
+    display_name: "SEC Filing"
+    mergeability: not_mergeable
+    strong_id_properties: ["accession_number"]
+    passive: true
+
+  - name: "person"
+    description: "A real person as opposed to a fictional character, such as a CEO, politician, or public figure"
+    display_name: "Person"
+    mergeability: not_mergeable
+    strong_id_properties: ["person_cik"]
+    passive: true
+
+  - name: "financial_instrument"
+    description: "A specific asset that can be traded, such as a stock, ETF, bond, CD, or fund. Companies are organizations, NOT financial instruments. Specific currency amounts are NOT financial instruments."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    strong_id_properties: ["cusip_number"]
+    passive: true
+
+  - name: "industry"
+    description: "A Standard Industrial Classification (SIC) industry category assigned by the SEC"
+    display_name: "Industry"
+    mergeability: not_mergeable
+    strong_id_properties: ["sic_code"]
+    passive: true
+
+# =============================================================================
+# PROPERTIES — Organization
+# =============================================================================
+
+properties:
+  # ── Organization: Identity (source: edgar submissions) ──
+
+  - name: "company_cik"
+    type: string
+    description: "SEC Central Index Key, 10-digit zero-padded"
+    display_name: "CIK"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a"]
+    passive: true
+
+  - name: "ticker"
+    type: string
+    description: "Primary stock ticker symbol"
+    display_name: "Ticker"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "exchange"
+    type: string
+    description: "Securities exchange listing"
+    display_name: "Exchange"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "sic_code"
+    type: string
+    description: "Four-digit Standard Industrial Classification code"
+    display_name: "SIC Code"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "industry"]
+    passive: true
+
+  - name: "sic_description"
+    type: string
+    description: "Human-readable SIC code description"
+    display_name: "SIC Description"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "industry"]
+    passive: true
+
+  - name: "state_of_incorporation"
+    type: string
+    description: "Two-letter US state or country code of incorporation"
+    display_name: "State of Incorporation"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "fiscal_year_end"
+    type: string
+    description: "Fiscal year end as MMDD string"
+    display_name: "Fiscal Year End"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "ein"
+    type: string
+    description: "IRS Employer Identification Number (9 digits)"
+    display_name: "EIN"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "business_phone"
+    type: string
+    description: "Primary business phone number"
+    display_name: "Business Phone"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "filer_category"
+    type: string
+    description: "SEC filer size category"
+    display_name: "Filer Category"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "physical_address"
+    type: string
+    description: "Physical street address of the entity"
+    display_name: "Physical Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "mailing_address"
+    type: string
+    description: "Mailing address as formatted string"
+    display_name: "Mailing Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "former_name"
+    type: string
+    description: "A previous legal name of the entity"
+    display_name: "Former Name"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  # ── Organization: Financials (source: edgar_10k/10q/20f form parsers) ──
+
+  - name: "total_revenue"
+    type: float
+    description: "Total revenues for the reporting period (USD)"
+    display_name: "Total Revenue"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "net_income"
+    type: float
+    description: "Net income or loss for the reporting period"
+    display_name: "Net Income"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "total_assets"
+    type: float
+    description: "Total assets"
+    display_name: "Total Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "total_liabilities"
+    type: float
+    description: "Total liabilities"
+    display_name: "Total Liabilities"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "shareholders_equity"
+    type: float
+    description: "Total stockholders' or shareholders' equity"
+    display_name: "Shareholders' Equity"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "shares_outstanding"
+    type: float
+    description: "Common shares outstanding"
+    display_name: "Shares Outstanding"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "entity_shell_company"
+    type: string
+    description: "Whether the entity is a shell company per SEC definition"
+    display_name: "Shell Company"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_number_of_employees"
+    type: float
+    description: "Workforce size from DEI cover page (10-K only)"
+    display_name: "Number of Employees"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_filer_category_dei"
+    type: string
+    description: "Filer category from DEI cover page (e.g. Large Accelerated Filer)"
+    display_name: "Filer Category (DEI)"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_small_business"
+    type: string
+    description: "Whether the entity is an emerging small business per SEC definition"
+    display_name: "Small Business"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_emerging_growth_company"
+    type: string
+    description: "Whether the entity is an emerging growth company (JOBS Act)"
+    display_name: "Emerging Growth Company"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_voluntary_filers"
+    type: string
+    description: "Voluntary vs mandatory filer status (10-K only)"
+    display_name: "Voluntary Filer"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_well_known_seasoned_issuer"
+    type: string
+    description: "Well-known seasoned issuer (WKSI) flag — shelf registration eligible (10-K only)"
+    display_name: "WKSI"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "security_12b_title"
+    type: string
+    description: "Title of listed security class from DEI cover page"
+    display_name: "Security 12b Title"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_listing_exchange"
+    type: string
+    description: "Securities exchange from DEI cover page (cross-check vs submissions API)"
+    display_name: "Listing Exchange (DEI)"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "document_fiscal_period_focus"
+    type: string
+    description: "Fiscal period focus from DEI cover page (FY, Q1, Q2, Q3)"
+    display_name: "Fiscal Period Focus"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::10_k", "sec::10_q"]
+    passive: true
+
+  - name: "entity_incorporation_state_dei"
+    type: string
+    description: "State or country of incorporation from DEI cover page"
+    display_name: "Incorporation State (DEI)"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "entity_tax_id_number"
+    type: string
+    description: "IRS tax identification number from DEI cover page (10-K only)"
+    display_name: "Tax ID (DEI)"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "reporting_currency"
+    type: string
+    description: "ISO 4217 currency code for foreign private issuers (20-F only)"
+    display_name: "Reporting Currency"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::20_f"]
+    passive: true
+
+  - name: "country_of_incorporation"
+    type: string
+    description: "Country of incorporation for foreign private issuers (20-F only)"
+    display_name: "Country of Incorporation"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::20_f"]
+    passive: true
+
+  # ── Organization: SC 13D/G Beneficial Ownership ──
+
+  - name: "group_shares_declared"
+    type: float
+    description: "Total shares beneficially owned by the filing group (SC 13D Row 11)"
+    display_name: "Group Shares Declared"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "sec::sc_13d", "sec::sc_13g"]
+    passive: true
+
+  - name: "group_ownership_percent"
+    type: float
+    description: "Percentage of share class owned by the group (SC 13D Row 13)"
+    display_name: "Group Ownership %"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "sec::sc_13d", "sec::sc_13g"]
+    passive: true
+
+  - name: "is_group_filing"
+    type: float
+    description: "Whether the SC 13D was filed by a group (1.0 = group, 0.0 = single)"
+    display_name: "Group Filing"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "sec::sc_13d", "sec::sc_13g"]
+    passive: true
+
+  - name: "shares_declared"
+    type: float
+    description: "Shares declared by an individual group member"
+    display_name: "Shares Declared"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "sec::form_3"]
+    passive: true
+
+  - name: "ownership_percent"
+    type: float
+    description: "Ownership percentage declared by an individual member or SC 13G filer"
+    display_name: "Ownership %"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "investment_purpose"
+    type: string
+    description: "Stated investment purpose from SC 13D Item 4"
+    display_name: "Investment Purpose"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "intends_to_buy_more"
+    type: float
+    description: "Filer stated intent to acquire additional shares (1.0 = true, only stored when true)"
+    display_name: "Intends to Buy More"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "intends_to_sell_all"
+    type: float
+    description: "Filer stated intent to dispose of all shares (1.0 = true, only stored when true)"
+    display_name: "Intends to Sell All"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "intends_to_influence"
+    type: float
+    description: "Filer stated intent to influence board or management (1.0 = true, only stored when true)"
+    display_name: "Intends to Influence"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "is_passive_investor"
+    type: float
+    description: "SC 13G passive investor flag (always 1.0 on SC 13G records)"
+    display_name: "Passive Investor"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "aggregate_amount_beneficially_owned"
+    type: float
+    description: "Total shares beneficially owned (SC 13D Row 9 / Item 5)"
+    display_name: "Aggregate Amount Beneficially Owned"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "sole_voting_power"
+    type: float
+    description: "Shares with sole voting authority (SC 13D Row 5)"
+    display_name: "Sole Voting Power"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "shared_voting_power"
+    type: float
+    description: "Shares with shared voting authority (SC 13D Row 6)"
+    display_name: "Shared Voting Power"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "sole_dispositive_power"
+    type: float
+    description: "Shares the owner can sell alone (SC 13D Row 7)"
+    display_name: "Sole Dispositive Power"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "shared_dispositive_power"
+    type: float
+    description: "Shares the owner can sell with others (SC 13D Row 8)"
+    display_name: "Shared Dispositive Power"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "type_of_reporting_person"
+    type: string
+    description: "SEC entity classification code (e.g. CO, IN, IA, HC)"
+    display_name: "Type of Reporting Person"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "citizenship_or_state_of_organization"
+    type: string
+    description: "Jurisdiction of citizenship or incorporation"
+    display_name: "Citizenship / State of Organization"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "source_of_funds"
+    type: string
+    description: "Source of acquisition funds (e.g. WC, OO, BK)"
+    display_name: "Source of Funds"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "board_size"
+    type: float
+    description: "Number of directors on the board (DEF 14A)"
+    display_name: "Board Size"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "sec::def_14a"]
+    passive: true
+
+  # ── Filing Metadata ──
+
+  - name: "accession_number"
+    type: string
+    description: "SEC accession number uniquely identifying a filing"
+    display_name: "Accession Number"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    passive: true
+
+  - name: "form_type"
+    type: string
+    description: "Normalized SEC form type (e.g. 10-K, SC 13D, 4)"
+    display_name: "Form Type"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    passive: true
+
+  - name: "filing_date"
+    type: string
+    description: "Date the filing was submitted to the SEC (YYYY-MM-DD)"
+    display_name: "Filing Date"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    passive: true
+
+  - name: "report_date"
+    type: string
+    description: "End date of the primary reporting period (YYYY-MM-DD)"
+    display_name: "Report Date"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    passive: true
+
+  # ── XBRL Financial Facts (key concepts) ──
+
+  - name: "us_gaap:assets"
+    type: float
+    description: "Total assets (USD). XBRL: us-gaap:Assets"
+    display_name: "Total Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:liabilities"
+    type: float
+    description: "Total liabilities (USD). XBRL: us-gaap:Liabilities. May be computed fallback."
+    display_name: "Total Liabilities"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:stockholders_equity"
+    type: float
+    description: "Total stockholders' equity (USD). XBRL: us-gaap:StockholdersEquity"
+    display_name: "Stockholders' Equity"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:revenues"
+    type: float
+    description: "Total revenues (USD). XBRL: us-gaap:Revenues"
+    display_name: "Revenues"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:net_income_loss"
+    type: float
+    description: "Net income or loss (USD). XBRL: us-gaap:NetIncomeLoss"
+    display_name: "Net Income/Loss"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:operating_income_loss"
+    type: float
+    description: "Operating income or loss (USD). XBRL: us-gaap:OperatingIncomeLoss"
+    display_name: "Operating Income/Loss"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:operating_cash_flow"
+    type: float
+    description: "Net cash from operating activities (USD). XBRL: us-gaap:NetCashProvidedByUsedInOperatingActivities"
+    display_name: "Operating Cash Flow"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:common_shares_outstanding"
+    type: float
+    description: "Common shares outstanding. XBRL: us-gaap:CommonStockSharesOutstanding"
+    display_name: "Common Shares Outstanding"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:long_term_debt"
+    type: float
+    description: "Long-term debt (USD). XBRL: us-gaap:LongTermDebt"
+    display_name: "Long-Term Debt"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:gross_profit"
+    type: float
+    description: "Gross profit (USD). XBRL: us-gaap:GrossProfit"
+    display_name: "Gross Profit"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:assets_current"
+    type: float
+    description: "Current assets (USD). XBRL: us-gaap:AssetsCurrent"
+    display_name: "Current Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:cash_and_cash_equivalents"
+    type: float
+    description: "Cash and cash equivalents (USD). XBRL: us-gaap:CashAndCashEquivalentsAtCarryingValue"
+    display_name: "Cash & Equivalents"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:cash_restricted"
+    type: float
+    description: "Restricted cash and equivalents (USD). XBRL: us-gaap:RestrictedCashAndCashEquivalents"
+    display_name: "Restricted Cash"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:cash"
+    type: float
+    description: "Cash (USD). XBRL: us-gaap:Cash"
+    display_name: "Cash"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:liabilities_current"
+    type: float
+    description: "Current liabilities (USD). XBRL: us-gaap:LiabilitiesCurrent"
+    display_name: "Current Liabilities"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:stockholders_equity_total"
+    type: float
+    description: "Total equity including noncontrolling interest (USD). XBRL: us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
+    display_name: "Total Equity"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:partners_capital"
+    type: float
+    description: "Partners' capital (USD). XBRL: us-gaap:PartnersCapital"
+    display_name: "Partners' Capital"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:retained_earnings"
+    type: float
+    description: "Retained earnings / accumulated deficit (USD). XBRL: us-gaap:RetainedEarningsAccumulatedDeficit"
+    display_name: "Retained Earnings"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:accounts_receivable_current"
+    type: float
+    description: "Current accounts receivable, net (USD). XBRL: us-gaap:AccountsReceivableNetCurrent"
+    display_name: "Accounts Receivable"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:inventory_net"
+    type: float
+    description: "Net inventory (USD). XBRL: us-gaap:InventoryNet"
+    display_name: "Inventory"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:accounts_payable_current"
+    type: float
+    description: "Current accounts payable (USD). XBRL: us-gaap:AccountsPayableCurrent"
+    display_name: "Accounts Payable"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:revenue_from_contracts"
+    type: float
+    description: "Revenue from contracts with customers (USD). XBRL: us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+    display_name: "Contract Revenue"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:profit_loss"
+    type: float
+    description: "Profit or loss including noncontrolling interest (USD). XBRL: us-gaap:ProfitLoss"
+    display_name: "Profit/Loss"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:cogs"
+    type: float
+    description: "Cost of goods and services sold (USD). XBRL: us-gaap:CostOfGoodsAndServicesSold"
+    display_name: "COGS"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:depreciation_and_amortization"
+    type: float
+    description: "Depreciation, depletion and amortization (USD). XBRL: us-gaap:DepreciationDepletionAndAmortization"
+    display_name: "D&A"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:interest_expense"
+    type: float
+    description: "Interest expense (USD). XBRL: us-gaap:InterestExpense"
+    display_name: "Interest Expense"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:interest_expense_nonoperating"
+    type: float
+    description: "Nonoperating interest expense (USD). XBRL: us-gaap:InterestExpenseNonoperating"
+    display_name: "Interest Expense (Nonoperating)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:interest_expense_operating"
+    type: float
+    description: "Operating interest expense (USD). XBRL: us-gaap:InterestExpenseOperating"
+    display_name: "Interest Expense (Operating)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:interest_expense_debt"
+    type: float
+    description: "Interest expense on debt (USD). XBRL: us-gaap:InterestExpenseDebt"
+    display_name: "Interest Expense (Debt)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:interest_and_debt_expense"
+    type: float
+    description: "Interest and debt expense combined (USD). XBRL: us-gaap:InterestAndDebtExpense"
+    display_name: "Interest & Debt Expense"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:financing_cash_flow"
+    type: float
+    description: "Net cash from financing activities (USD). XBRL: us-gaap:NetCashProvidedByUsedInFinancingActivities"
+    display_name: "Financing Cash Flow"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:capex_paid"
+    type: float
+    description: "Capital expenditures paid (USD). XBRL: us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
+    display_name: "CapEx"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:long_term_debt_current"
+    type: float
+    description: "Current portion of long-term debt (USD). XBRL: us-gaap:LongTermDebtCurrent"
+    display_name: "Current Long-Term Debt"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:short_term_borrowings"
+    type: float
+    description: "Short-term borrowings (USD). XBRL: us-gaap:ShortTermBorrowings"
+    display_name: "Short-Term Borrowings"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:total_debt"
+    type: float
+    description: "Combined long- and short-term debt (USD). XBRL: us-gaap:DebtLongtermAndShorttermCombinedAmount"
+    display_name: "Total Debt"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:debt_maturity_year_1"
+    type: float
+    description: "Debt maturing within one year (USD). XBRL: us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+    display_name: "Debt Maturity (1 Year)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:convertible_debt"
+    type: float
+    description: "Convertible debt (USD). XBRL: us-gaap:ConvertibleDebt"
+    display_name: "Convertible Debt"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:secured_debt"
+    type: float
+    description: "Secured debt (USD). XBRL: us-gaap:SecuredDebt"
+    display_name: "Secured Debt"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:notes_payable"
+    type: float
+    description: "Notes payable (USD). XBRL: us-gaap:NotesPayable"
+    display_name: "Notes Payable"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:notes_payable_related_parties"
+    type: float
+    description: "Notes payable to related parties, noncurrent (USD). XBRL: us-gaap:NotesPayableRelatedPartiesNoncurrent"
+    display_name: "Notes Payable (Related Parties)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:line_of_credit"
+    type: float
+    description: "Line of credit (USD). XBRL: us-gaap:LineOfCredit"
+    display_name: "Line of Credit"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:finance_lease_liability"
+    type: float
+    description: "Finance lease liability (USD). XBRL: us-gaap:FinanceLeaseLiability"
+    display_name: "Finance Lease Liability"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:derivative_liabilities"
+    type: float
+    description: "Derivative liabilities (USD). XBRL: us-gaap:DerivativeLiabilities"
+    display_name: "Derivative Liabilities"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "dei:public_float"
+    type: float
+    description: "Aggregate market value of non-affiliate equity (USD). XBRL: dei:EntityPublicFloat"
+    display_name: "Public Float"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "dei:common_shares_outstanding"
+    type: float
+    description: "Common shares outstanding from DEI cover page. XBRL: dei:EntityCommonStockSharesOutstanding"
+    display_name: "Common Shares Outstanding (DEI)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "dei:number_of_employees"
+    type: float
+    description: "Number of employees from DEI cover page. XBRL: dei:EntityNumberOfEmployees"
+    display_name: "Number of Employees"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: Additional balance sheet ──
+
+  - name: "us_gaap:pp_and_e_net"
+    type: float
+    description: "Property, plant and equipment net (USD). XBRL: us-gaap:PropertyPlantAndEquipmentNet"
+    display_name: "PP&E Net"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:additional_paid_in_capital"
+    type: float
+    description: "Additional paid-in capital above par (USD). XBRL: us-gaap:AdditionalPaidInCapital"
+    display_name: "Additional Paid-In Capital"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:goodwill"
+    type: float
+    description: "Goodwill (USD). XBRL: us-gaap:Goodwill"
+    display_name: "Goodwill"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:operating_lease_rou_asset"
+    type: float
+    description: "Operating lease right-of-use asset (USD, ASC 842). XBRL: us-gaap:OperatingLeaseRightOfUseAsset"
+    display_name: "Operating Lease ROU Asset"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:operating_lease_liability"
+    type: float
+    description: "Total operating lease liability (USD, ASC 842). XBRL: us-gaap:OperatingLeaseLiability"
+    display_name: "Operating Lease Liability"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:long_term_debt_noncurrent"
+    type: float
+    description: "Long-term debt excluding current portion (USD). XBRL: us-gaap:LongTermDebtNoncurrent"
+    display_name: "Long-Term Debt (Noncurrent)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:minority_interest"
+    type: float
+    description: "Noncontrolling interest in subsidiaries (USD). XBRL: us-gaap:MinorityInterest"
+    display_name: "Noncontrolling Interest"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:treasury_stock"
+    type: float
+    description: "Treasury stock at cost (USD). XBRL: us-gaap:TreasuryStockValue"
+    display_name: "Treasury Stock"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:intangible_assets"
+    type: float
+    description: "Intangible assets net excluding goodwill (USD). XBRL: us-gaap:IntangibleAssetsNetExcludingGoodwill"
+    display_name: "Intangible Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: Additional income statement ──
+
+  - name: "us_gaap:income_tax_expense"
+    type: float
+    description: "Income tax expense or benefit (USD). XBRL: us-gaap:IncomeTaxExpenseBenefit"
+    display_name: "Income Tax Expense"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:operating_expenses"
+    type: float
+    description: "Total operating expenses (USD). XBRL: us-gaap:OperatingExpenses"
+    display_name: "Operating Expenses"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:research_and_development"
+    type: float
+    description: "Research and development expense (USD). XBRL: us-gaap:ResearchAndDevelopmentExpense"
+    display_name: "R&D Expense"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:sg_and_a"
+    type: float
+    description: "Selling, general and administrative expense (USD). XBRL: us-gaap:SellingGeneralAndAdministrativeExpense"
+    display_name: "SG&A"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:comprehensive_income"
+    type: float
+    description: "Comprehensive income net of tax (USD). XBRL: us-gaap:ComprehensiveIncomeNetOfTax"
+    display_name: "Comprehensive Income"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:asset_impairment"
+    type: float
+    description: "Asset impairment charges (USD). XBRL: us-gaap:AssetImpairmentCharges"
+    display_name: "Asset Impairment"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:goodwill_impairment"
+    type: float
+    description: "Goodwill impairment loss (USD). XBRL: us-gaap:GoodwillImpairmentLoss"
+    display_name: "Goodwill Impairment"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: Additional cash flow ──
+
+  - name: "us_gaap:investing_cash_flow"
+    type: float
+    description: "Net cash from investing activities (USD). XBRL: us-gaap:NetCashProvidedByUsedInInvestingActivities"
+    display_name: "Investing Cash Flow"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:share_repurchases"
+    type: float
+    description: "Payments for repurchase of common stock (USD). XBRL: us-gaap:PaymentsForRepurchaseOfCommonStock"
+    display_name: "Share Repurchases"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:acquisition_payments"
+    type: float
+    description: "Payments to acquire businesses net of cash (USD). XBRL: us-gaap:PaymentsToAcquireBusinessesNetOfCashAcquired"
+    display_name: "Acquisition Payments"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:debt_repayments"
+    type: float
+    description: "Repayments of long-term debt (USD). XBRL: us-gaap:RepaymentsOfLongTermDebt"
+    display_name: "Debt Repayments"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:dividends_common"
+    type: float
+    description: "Cash dividends paid on common stock (USD). XBRL: us-gaap:DividendsCommonStockCash"
+    display_name: "Dividends (Common)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:stock_retired"
+    type: float
+    description: "Stock repurchased and retired during period (USD). XBRL: us-gaap:StockRepurchasedAndRetiredDuringPeriodValue"
+    display_name: "Stock Retired"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: Per share and shares ──
+
+  - name: "us_gaap:eps_basic_xbrl"
+    type: float
+    description: "Basic earnings per share from XBRL (USD). XBRL: us-gaap:EarningsPerShareBasic"
+    display_name: "EPS Basic (XBRL)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:eps_diluted_xbrl"
+    type: float
+    description: "Diluted earnings per share from XBRL (USD). XBRL: us-gaap:EarningsPerShareDiluted"
+    display_name: "EPS Diluted (XBRL)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:weighted_avg_shares_basic"
+    type: float
+    description: "Weighted average shares outstanding basic. XBRL: us-gaap:WeightedAverageNumberOfSharesOutstandingBasic"
+    display_name: "Weighted Avg Shares (Basic)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:weighted_avg_shares_diluted"
+    type: float
+    description: "Weighted average shares outstanding diluted. XBRL: us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding"
+    display_name: "Weighted Avg Shares (Diluted)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "us_gaap:weighted_avg_shares_basic_and_diluted"
+    type: float
+    description: "Weighted average shares basic and diluted. XBRL: us-gaap:WeightedAverageNumberOfShareOutstandingBasicAndDiluted"
+    display_name: "Weighted Avg Shares (Basic & Diluted)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: Company info ──
+
+  - name: "us_gaap:number_of_segments"
+    type: float
+    description: "Number of reportable business segments. XBRL: us-gaap:NumberOfReportableSegments"
+    display_name: "Number of Segments"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  # ── XBRL: IFRS ──
+
+  - name: "ifrs:assets"
+    type: float
+    description: "Total assets under IFRS (USD). XBRL: ifrs-full:Assets"
+    display_name: "Total Assets (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:cash_and_cash_equivalents"
+    type: float
+    description: "Cash and cash equivalents under IFRS (USD). XBRL: ifrs-full:CashAndCashEquivalents"
+    display_name: "Cash (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:equity"
+    type: float
+    description: "Total equity under IFRS (USD). XBRL: ifrs-full:Equity"
+    display_name: "Total Equity (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:profit_loss"
+    type: float
+    description: "Profit or loss under IFRS (USD). XBRL: ifrs-full:ProfitLoss"
+    display_name: "Profit/Loss (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:operating_cash_flow"
+    type: float
+    description: "Cash flows from operating activities under IFRS (USD). XBRL: ifrs-full:CashFlowsFromUsedInOperatingActivities"
+    display_name: "Operating Cash Flow (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:current_assets"
+    type: float
+    description: "Current assets under IFRS (USD). XBRL: ifrs-full:CurrentAssets"
+    display_name: "Current Assets (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:current_liabilities"
+    type: float
+    description: "Current liabilities under IFRS (USD). XBRL: ifrs-full:CurrentLiabilities"
+    display_name: "Current Liabilities (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:liabilities"
+    type: float
+    description: "Total liabilities under IFRS (USD). XBRL: ifrs-full:Liabilities"
+    display_name: "Total Liabilities (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "ifrs:revenue"
+    type: float
+    description: "Revenue under IFRS (USD). XBRL: ifrs-full:Revenue"
+    display_name: "Revenue (IFRS)"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "organization"]
+    passive: true
+
+  - name: "eps_basic"
+    type: float
+    description: "Basic earnings per share (USD)"
+    display_name: "EPS Basic"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  - name: "eps_diluted"
+    type: float
+    description: "Diluted earnings per share (USD)"
+    display_name: "EPS Diluted"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f"]
+    passive: true
+
+  # ── 8-K Events ──
+
+  - name: "form_8k_event"
+    type: string
+    description: "Snake_case identifier of the 8-K corporate event"
+    display_name: "8-K Event"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "form_8k_item_code"
+    type: string
+    description: "Raw SEC 8-K item number (e.g. 1.01, 5.02)"
+    display_name: "8-K Item Code"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "category"
+    type: string
+    description: "Classification or category for the event"
+    display_name: "Category"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "event_severity"
+    type: string
+    description: "Severity level derived from 8-K item code: critical, high, medium, or low"
+    display_name: "Event Severity"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "8k_cybersecurity_keyword"
+    type: string
+    description: "Cybersecurity keyword detected in Item 8.01 body text"
+    display_name: "Cybersecurity Keyword"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "8k_litigation_keyword"
+    type: string
+    description: "Litigation keyword detected in Item 8.01 body text"
+    display_name: "Litigation Keyword"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "8k_regulatory_keyword"
+    type: string
+    description: "Regulatory action keyword detected in Item 8.01 body text"
+    display_name: "Regulatory Keyword"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "8k_operational_keyword"
+    type: string
+    description: "Operational disruption keyword detected in Item 8.01 body text"
+    display_name: "Operational Keyword"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "abs_servicing_event"
+    type: string
+    description: "ABS Information and Computation Material flag (Item 6.01)"
+    display_name: "ABS Servicing Event"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "abs_servicer_change"
+    type: string
+    description: "Change of Servicer or Trustee flag (Item 6.02)"
+    display_name: "ABS Servicer Change"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "abs_credit_enhancement_change"
+    type: string
+    description: "Change in Credit Enhancement flag (Item 6.03)"
+    display_name: "ABS Credit Enhancement Change"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "abs_failure_event"
+    type: string
+    description: "Failure to Make Distribution flag (Item 6.04)"
+    display_name: "ABS Failure Event"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  - name: "abs_securities_act"
+    type: string
+    description: "Securities Act Updating Disclosure flag (Item 6.05)"
+    display_name: "ABS Securities Act"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::8_k"]
+    passive: true
+
+  # ── Form 3/4 Transactions ──
+
+  - name: "transaction_type"
+    type: string
+    description: "Human-readable Form 4 transaction code description"
+    display_name: "Transaction Type"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "transaction_date"
+    type: string
+    description: "Date the ownership transaction occurred (YYYY-MM-DD)"
+    display_name: "Transaction Date"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "acquired_disposed_code"
+    type: string
+    description: "Whether shares were acquired (A) or disposed (D)"
+    display_name: "Acquired/Disposed"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "security_type"
+    type: string
+    description: "Class of security involved in the transaction or holding"
+    display_name: "Security Type"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "financial_instrument"]
+    passive: true
+
+  - name: "shares_transacted"
+    type: float
+    description: "Number of shares bought, sold, or transferred"
+    display_name: "Shares Transacted"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "price_per_share"
+    type: float
+    description: "Price per share for the transaction (USD)"
+    display_name: "Price Per Share"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "shares_owned_after"
+    type: float
+    description: "Total shares held after the transaction"
+    display_name: "Shares Owned After"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "exercise_price"
+    type: float
+    description: "Conversion or exercise price for derivative securities (USD)"
+    display_name: "Exercise Price"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "underlying_security_type"
+    type: string
+    description: "Title of the underlying security for derivative holdings (Form 3/4)"
+    display_name: "Underlying Security Type"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "underlying_security_shares"
+    type: float
+    description: "Number of shares of the underlying security for derivative holdings (Form 3/4)"
+    display_name: "Underlying Security Shares"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "direct_or_indirect_ownership"
+    type: string
+    description: "Whether ownership is Direct or Indirect"
+    display_name: "Ownership Type"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "is_10b5_1_plan"
+    type: string
+    description: "Whether the transaction was under a Rule 10b5-1 plan"
+    display_name: "10b5-1 Plan"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_3", "sec::form_4"]
+    passive: true
+
+  - name: "footnote_text"
+    type: string
+    description: "Footnote text from Form 4 providing transaction context (plan details, vesting)"
+    display_name: "Footnote Text"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_4"]
+    passive: true
+
+  - name: "equity_swap_involved"
+    type: string
+    description: "Whether the transaction involves an equity swap"
+    display_name: "Equity Swap Involved"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_4"]
+    passive: true
+
+  - name: "insider_trade_event"
+    type: string
+    description: "Derived insider trade event: INSIDER_BUY or INSIDER_SELL"
+    display_name: "Insider Trade Event"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::form_4"]
+    passive: true
+
+  - name: "owner_address"
+    type: string
+    description: "Reporting owner address from Form 3/4 XML (city, state)"
+    display_name: "Owner Address"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  # ── 13F-HR Additional ──
+
+  - name: "report_period_date"
+    type: string
+    description: "Quarter-end date for the 13F-HR report period"
+    display_name: "Report Period Date"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::13f_hr"]
+    passive: true
+
+  - name: "confidential_treatment_flag"
+    type: string
+    description: "Whether the 13F-HR manager requested confidential treatment"
+    display_name: "Confidential Treatment"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::13f_hr"]
+    passive: true
+
+  # ── DEF 14A Proxy ──
+
+  - name: "auditor"
+    type: string
+    description: "Independent registered public accounting firm"
+    display_name: "Auditor"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::def_14a"]
+    passive: true
+
+  - name: "audit_fees"
+    type: float
+    description: "Fees paid to the independent auditor (USD)"
+    display_name: "Audit Fees"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::def_14a"]
+    passive: true
+
+  # ── Person: 8-K Officer Changes ──
+
+  - name: "change_type"
+    type: string
+    description: "Type of officer/director change from 8-K Item 5.02 (e.g. appointed, resigned, terminated)"
+    display_name: "Change Type"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "relationship_type"
+    type: string
+    description: "Relationship between a counterparty organization and the issuer from 8-K (e.g. acquirer, creditor)"
+    display_name: "Relationship Type"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  # ── Person: Insider Identity ──
+
+  - name: "person_cik"
+    type: string
+    description: "SEC Central Index Key for the reporting person (10-digit zero-padded)"
+    display_name: "Person CIK"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "job_title"
+    type: string
+    description: "Officer title as stated in the filing"
+    display_name: "Job Title"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "board_committee"
+    type: string
+    description: "Board committee membership (DEF 14A)"
+    display_name: "Board Committee"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "is_independent"
+    type: float
+    description: "Whether the director is classified as independent (1.0 = yes, 0.0 = no)"
+    display_name: "Independent Director"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "director_since"
+    type: string
+    description: "Year the person became a director"
+    display_name: "Director Since"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  - name: "total_compensation"
+    type: float
+    description: "Total compensation from Summary Compensation Table (USD)"
+    display_name: "Total Compensation"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    passive: true
+
+  # ── Financial Instrument: 13F-HR Holdings ──
+
+  - name: "cusip_number"
+    type: string
+    description: "CUSIP identifier for the security"
+    display_name: "CUSIP"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument", "organization", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr"]
+    passive: true
+
+  - name: "position_value"
+    type: float
+    description: "Market value of the holding (USD)"
+    display_name: "Position Value"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "shares_held"
+    type: float
+    description: "Number of shares or principal amount held"
+    display_name: "Shares Held"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "instrument_type"
+    type: string
+    description: "Type of holding: SH (shares) or PRN (principal amount)"
+    display_name: "Instrument Type"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "put_call"
+    type: string
+    description: "PUT or CALL for option positions; empty for equity"
+    display_name: "Put/Call"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "voting_authority_sole"
+    type: float
+    description: "Shares with sole voting authority"
+    display_name: "Voting Authority (Sole)"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "voting_authority_shared"
+    type: float
+    description: "Shares with shared voting authority"
+    display_name: "Voting Authority (Shared)"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "voting_authority_none"
+    type: float
+    description: "Shares with no voting authority"
+    display_name: "Voting Authority (None)"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    passive: true
+
+  - name: "investment_discretion"
+    type: string
+    description: "Investment discretion type: SOLE, DFND, or OTR"
+    display_name: "Investment Discretion"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "financial_instrument"]
+    passive: true
+
+# =============================================================================
+# RELATIONSHIPS
+# =============================================================================
+
+relationships:
+  # ── Organization → Filing ──
+
+  - name: "filed"
+    description: "Link from a company or person to an SEC filing document they filed, or from a sub-record (event, transaction, holding) to its parent filing"
+    display_name: "Filed"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    target_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    passive: true
+
+  - name: "is_issuer_of"
+    description: "Link from an issuer organization to an ownership filing (Forms 3/4, SC 13D/G) where the CIK is the issuer, not the filer"
+    display_name: "Is Issuer Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::filing"]
+    passive: true
+
+  - name: "filing_reference"
+    description: "Link from an entity to the specific SEC filing that is its source"
+    display_name: "Filing Reference"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "financial_instrument"]
+    target_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a"]
+    passive: true
+
+  # ── Filing → Organization ──
+
+  - name: "issued_by"
+    description: "Link from a filing or financial instrument to the company it pertains to (the filer for most forms; the issuer for ownership forms and 13F holdings)"
+    display_name: "Issued By"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing", "financial_instrument"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "refers_to"
+    description: "Link from a filing or counterparty to the company the document is principally about"
+    display_name: "Refers To"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "filer"
+    description: "Link from a filing to the entity (person or organization) who filed it"
+    display_name: "Filer"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::10_k", "sec::10_q", "sec::20_f", "sec::8_k", "sec::6_k", "sec::40_f", "sec::form_3", "sec::form_4", "sec::sc_13d", "sec::sc_13g", "sec::13f_hr", "sec::def_14a", "sec::filing"]
+    target_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "group_member"
+    description: "Link from an SC 13D document to each group member (excluding primary filer)"
+    display_name: "Group Member"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::sc_13d"]
+    target_flavors: ["organization", "person"]
+    passive: true
+
+  - name: "compares_to"
+    description: "An organization is used as a comparable for analysis of another organization, e.g., BMW as a comparable company to Tesla"
+    display_name: "Compares To"
+    mergeability: not_mergeable
+    domain_flavors: ["sec::def_14a"]
+    target_flavors: ["organization"]
+    passive: true
+
+  # ── Organization → Organization ──
+
+  - name: "owns_stake_in"
+    description: "Link from a beneficial owner to the company whose shares they hold (SC 13D/G)"
+    display_name: "Owns Stake In"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "has_subsidiary"
+    description: "Link from a parent company to a subsidiary (co-registrant or EX-21)"
+    display_name: "Has Subsidiary"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "is_part_of"
+    description: "An organization is a part of a larger organization, e.g., a subdivision or subsidiary within a larger company"
+    display_name: "Part Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  # ── Organization → Financial Instrument ──
+
+  - name: "holds_position"
+    description: "Link from an investment manager or fund to a security it holds (13F-HR, N-PORT)"
+    display_name: "Holds Position"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "financial_instrument"]
+    target_flavors: ["financial_instrument"]
+    passive: true
+
+  # ── Person → Organization ──
+
+  - name: "is_officer"
+    description: "Link from a person to the organization for which they are an officer"
+    display_name: "Is Officer"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "is_director"
+    description: "A person is on the board of directors of an organization. Not to be used for heads of organizations."
+    display_name: "Is Director"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "is_ten_percent_owner"
+    description: "Link from a person to an organization in which they hold >=10% beneficial ownership"
+    display_name: "10% Owner"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "works_at"
+    description: "A person is employed by, or is a founder of an organization. Not to be used for heads or board members of organizations."
+    display_name: "Works At"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  # ── Organization → Financial Instrument (issuer link) ──
+
+  - name: "issues_security"
+    description: "Link from an issuing company to a financial instrument it has issued, identified by CUSIP (SC 13D/G)"
+    display_name: "Issues Security"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument"]
+    passive: true
+
+# =============================================================================
+# ATTRIBUTES
+# =============================================================================
+
+# filing_period is attached to all financial property atoms (XBRL and
+# form-parsed) to distinguish fiscal periods. Values: FY (annual),
+# Q1, Q2, Q3 (quarterly). Applied to us_gaap:*, dei:*, total_revenue,
+# net_income, total_assets, total_liabilities, shareholders_equity,
+# shares_outstanding, eps_basic, eps_diluted, and other financial metrics.
+# Only representative entries are listed; the attribute is added dynamically
+# by the atomizer to all financial atoms.
+
+attributes:
+  - property: "us_gaap:assets"
+    name: "filing_period"
+    type: string
+    description: "Fiscal period: FY (annual), Q1, Q2, Q3 (quarterly)"
+    display_name: "Filing Period"
+    mergeability: not_mergeable
+
+  - property: "us_gaap:revenues"
+    name: "filing_period"
+    type: string
+    description: "Fiscal period: FY (annual), Q1, Q2, Q3 (quarterly)"
+    display_name: "Filing Period"
+    mergeability: not_mergeable
+
+  - property: "us_gaap:net_income_loss"
+    name: "filing_period"
+    type: string
+    description: "Fiscal period: FY (annual), Q1, Q2, Q3 (quarterly)"
+    display_name: "Filing Period"
+    mergeability: not_mergeable
+
+  - property: "total_revenue"
+    name: "filing_period"
+    type: string
+    description: "Fiscal period: FY (annual), Q1, Q2, Q3 (quarterly)"
+    display_name: "Filing Period"
+    mergeability: not_mergeable
+
+  - property: "net_income"
+    name: "filing_period"
+    type: string
+    description: "Fiscal period: FY (annual), Q1, Q2, Q3 (quarterly)"
+    display_name: "Filing Period"
+    mergeability: not_mergeable
+
+  # ── holds_position relationship attributes (13F-HR) ──
+
+  - property: "holds_position"
+    name: "position_value"
+    type: string
+    description: "Market value of the position in thousands of USD"
+    display_name: "Position Value"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "shares_held"
+    type: string
+    description: "Number of shares or principal amount held"
+    display_name: "Shares Held"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "instrument_type"
+    type: string
+    description: "Type of instrument: SH (shares) or PRN (principal amount)"
+    display_name: "Instrument Type"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "put_call"
+    type: string
+    description: "Option type if applicable: PUT or CALL"
+    display_name: "Put/Call"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "investment_discretion"
+    type: string
+    description: "Investment discretion: SOLE, SHARED, or DEFINED"
+    display_name: "Investment Discretion"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "voting_authority_sole"
+    type: string
+    description: "Shares with sole voting authority"
+    display_name: "Voting Authority (Sole)"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "voting_authority_shared"
+    type: string
+    description: "Shares with shared voting authority"
+    display_name: "Voting Authority (Shared)"
+    mergeability: not_mergeable
+
+  - property: "holds_position"
+    name: "voting_authority_none"
+    type: string
+    description: "Shares with no voting authority"
+    display_name: "Voting Authority (None)"
+    mergeability: not_mergeable

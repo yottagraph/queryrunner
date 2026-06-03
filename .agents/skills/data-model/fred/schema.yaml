@@ -1,0 +1,155 @@
+# Dataset schema for FRED (Federal Reserve Economic Data).
+#
+# Architecture:
+#   Each FRED series produces TWO records:
+#   1. A fred_series record: the series entity is the subject and carries all
+#      metadata atoms (fred_series_id, name, notes, publisher, release_link) plus
+#      one observation atom per data point, timestamped to the observation date.
+#   2. A context record: the real-world entity the series describes (a location,
+#      organization, financial instrument, or commodity) is the subject and
+#      carries a single appears_in_fred_series relationship atom pointing back
+#      to the fred_series entity.
+#
+# All elements are passive — created by the atomizer from FRED API JSON, not
+# by LLM extraction.
+#
+# Source identifier used on all records: the DataStream name (e.g. "fred-source")
+name: "fred"
+description: "Macroeconomic time series from the Federal Reserve Bank of St. Louis FRED database — GDP, employment, inflation, interest rates, housing, financial markets, and commodity prices"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "fred_series"
+    description: "A single named time series from the FRED database, identified by its alphanumeric series ID (e.g. GDP, UNRATE, DGS10). The entity carries all metadata and timestamped observation values."
+    display_name: "FRED Series"
+    mergeability: not_mergeable
+    strong_id_properties: ["fred_series_id"]
+    passive: true
+
+  - name: "location"
+    description: "A specific named geographic location such as a city, country, region, or landmark"
+    display_name: "Location"
+    mergeability: not_mergeable
+    strong_id_properties: ["iso_country_code"]
+    passive: true
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "financial_instrument"
+    description: "A specific asset that can be traded, such as a stock, ETF, bond, CD, or fund. Companies are organizations, NOT financial instruments. Specific currency amounts are NOT financial instruments."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "product"
+    description: "A specific tangible product being sold or marketed by an organization"
+    display_name: "Product"
+    mergeability: not_mergeable
+    passive: true
+
+# --- Strong ID properties ---
+
+properties:
+  - name: "iso_country_code"
+    type: string
+    description: "ISO 3166-1 alpha-2 country code used as the strong ID for location entities — e.g. US, DE, JP, GB"
+    display_name: "ISO Country Code"
+    mergeability: not_mergeable
+    domain_flavors: ["location"]
+    examples: ["US", "DE", "JP", "GB", "FR", "CN"]
+    passive: true
+
+# --- Metadata properties (emitted once per fred_series record) ---
+
+  - name: "fred_series_id"
+    type: string
+    description: "FRED alphanumeric series identifier, from the id field of the /series API response. Serves as the strong ID for fred_series entities."
+    display_name: "FRED Series ID"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["GDP", "UNRATE", "DGS10"]
+    passive: true
+
+  - name: "name"
+    type: string
+    description: "Display name of the entity"
+    display_name: "Name"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["Gross Domestic Product", "Federal Funds Effective Rate"]
+    passive: true
+
+  - name: "notes"
+    type: string
+    description: "Descriptive notes or commentary associated with the entity"
+    display_name: "Notes"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    passive: true
+
+  - name: "publisher"
+    type: string
+    description: "Name of the organization that publishes or maintains the data series, inferred from the release URL domain"
+    display_name: "Publisher"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["U.S. Bureau of Labor Statistics", "Board of Governors of the Federal Reserve System", "U.S. Bureau of Economic Analysis"]
+    passive: true
+
+  - name: "release_link"
+    type: string
+    description: "URL to the publisher's page for the statistical release containing this series, from the link field of the /series/release API response"
+    display_name: "Release Link"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["https://www.bls.gov/ces/", "https://www.federalreserve.gov/releases/h15/"]
+    passive: true
+
+  # --- Time-series data (one atom per data point, timestamped) ---
+
+  - name: "unit"
+    type: string
+    description: "Unit of measurement for observed values, from units_short (preferred) or units in the FRED /series API response"
+    display_name: "Unit"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["Bil. of $", "Percent", "Index 1982-1984=100", "Thousands"]
+    passive: true
+
+  - name: "frequency"
+    type: string
+    description: "Measurement frequency of the time series, from frequency_short (preferred) or frequency in the FRED /series API response"
+    display_name: "Frequency"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    examples: ["D", "W", "M", "Q", "A"]
+    passive: true
+
+  - name: "observation"
+    type: float
+    description: "A single data point from the FRED time series, timestamped to the observation date"
+    display_name: "Observation"
+    mergeability: not_mergeable
+    domain_flavors: ["fred_series"]
+    passive: true
+
+relationships:
+  - name: "appears_in_fred_series"
+    description: "Links a named real-world entity (location, organization, financial instrument, or commodity) to the FRED time series in which it appears as the primary subject"
+    display_name: "Appears in FRED Series"
+    mergeability: not_mergeable
+    domain_flavors: ["location", "organization", "financial_instrument", "product"]
+    target_flavors: ["fred_series"]
+    passive: true
+
+attributes: []

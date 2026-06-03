@@ -1,0 +1,356 @@
+# Dataset schema for FDIC banking data (BankFind Suite API).
+#
+# This schema describes entity types, properties, and relationships produced
+# by atomizing structured JSON from the FDIC BankFind Suite API endpoints:
+# Institutions, Financials (Call Reports), and Failures. All elements are
+# passive — they are created by the atomizer from parsed JSON fields, not
+# by LLM extraction.
+#
+# Two source identifiers are used on records:
+#   - "fdic"          — institution profiles + quarterly financials
+#   - "fdic_failure"  — bank failure and resolution data
+name: "fdic"
+description: "FDIC-insured depository institution profiles, quarterly Call Report financials, and bank failure/resolution data from the FDIC BankFind Suite API"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    strong_id_properties: ["fdic_certificate_number"]
+    passive: true
+
+  - name: "location"
+    description: "A specific named geographic location such as a city, country, region, or landmark"
+    display_name: "Location"
+    mergeability: not_mergeable
+    examples: ["New York City", "San Francisco", "North America", "Bakery Square"]
+    passive: true
+
+# --- Identity and Registration (source: fdic) ---
+
+properties:
+  - name: "fdic_certificate_number"
+    type: string
+    description: "FDIC Certificate Number uniquely identifying an insured institution, derived from the CERT field in the Institutions API"
+    display_name: "FDIC Certificate Number"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["628", "3850"]
+    passive: true
+
+  - name: "fed_rssd_id"
+    type: string
+    description: "Federal Reserve RSSD ID assigned to the financial institution by the Federal Reserve, derived from the FED_RSSD field"
+    display_name: "Federal Reserve RSSD ID"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["852218", "242"]
+    passive: true
+
+  - name: "physical_address"
+    type: string
+    description: "Physical street address of the entity"
+    display_name: "Physical Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["1111 Polaris Pkwy, Columbus, OH 43240", "101 Main St, Xenia, IL 62899"]
+    passive: true
+
+  - name: "charter_class"
+    type: string
+    description: "FDIC institution charter class code describing charter type and regulatory supervision (e.g., N=national bank OCC-supervised, SM=state-chartered Fed member, NM=state-chartered non-member, SB=savings bank, SA=savings association)"
+    display_name: "Charter Class"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["N", "SM", "NM", "SB", "SA"]
+    passive: true
+
+  - name: "regulatory_agency"
+    type: string
+    description: "Primary federal regulatory agency supervising this institution, derived from the REGAGNT field"
+    display_name: "Regulatory Agency"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["OCC", "FED", "FDIC"]
+    passive: true
+
+  - name: "established_date"
+    type: string
+    description: "Date the institution was established, reformatted from ESTYMD to YYYY-MM-DD"
+    display_name: "Established Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["1824-01-01", "1934-01-01"]
+    passive: true
+
+  - name: "fdic_insurance_date"
+    type: string
+    description: "Date the institution obtained FDIC deposit insurance, reformatted from INSDATE to YYYY-MM-DD"
+    display_name: "FDIC Insurance Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["1934-01-01", "2005-06-15"]
+    passive: true
+
+  - name: "active_flag"
+    type: float
+    description: "Whether the institution is currently active and operating (1.0 = active, 0.0 = inactive), derived from the ACTIVE field"
+    display_name: "Active Flag"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "holding_company_name"
+    type: string
+    description: "Name of the top-tier bank holding company, derived from the NAMEHCR field; omitted when the institution is independent"
+    display_name: "Holding Company Name"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["JPMORGAN CHASE&CO", "FIRST COMMUNITY BANCSHARES"]
+    passive: true
+
+  - name: "website"
+    type: string
+    description: "Primary website URL of the institution, derived from the WEBADDR field; omitted when blank"
+    display_name: "Website"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["www.jpmorganchase.com", "www.fcbanking.com"]
+    passive: true
+
+  - name: "fdic_geographic_region"
+    type: string
+    description: "FDIC supervisory region name, derived from the FDICREGN field"
+    display_name: "FDIC Geographic Region"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["Chicago", "Atlanta", "Dallas"]
+    passive: true
+
+  - name: "institution_category"
+    type: string
+    description: "FDIC specialization group description classifying the institution by size and type, derived from the SPECGRPN field"
+    display_name: "Institution Category"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["International Specialization", "ALL OTHER UNDER 1 BILLION", "ALL OTHER 1 TO 10 BILLION"]
+    passive: true
+
+  - name: "office_count"
+    type: float
+    description: "Total number of offices (branches) operated by the institution including domestic and foreign, derived from the OFFICES field"
+    display_name: "Office Count"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["5320.0", "1.0", "25.0"]
+    passive: true
+
+  - name: "former_name"
+    type: string
+    description: "A previous legal name of the entity"
+    display_name: "Former Name"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["Chemical Bank", "The Chase Manhattan Bank"]
+    passive: true
+
+  # --- Quarterly Financial Data (source: fdic) ---
+  # From FDIC BankFind Suite Financials API (Call Reports FFIEC 031/041/051).
+  # Shared properties (total_assets, total_liabilities, shareholders_equity,
+  # net_income) are converted from thousands to USD for cross-source
+  # compatibility. FDIC-specific properties remain in thousands of USD.
+
+  - name: "total_assets"
+    type: float
+    description: "Total assets"
+    display_name: "Total Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "total_deposits"
+    type: float
+    description: "Total deposits held by the institution in thousands of USD as reported in Call Reports"
+    display_name: "Total Deposits"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "total_liabilities"
+    type: float
+    description: "Total liabilities"
+    display_name: "Total Liabilities"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "shareholders_equity"
+    type: float
+    description: "Total stockholders' or shareholders' equity"
+    display_name: "Shareholders Equity"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "net_income"
+    type: float
+    description: "Net income or loss for the reporting period"
+    display_name: "Net Income"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "net_loans_and_leases"
+    type: float
+    description: "Net loans and leases after deducting allowance for loan losses, in thousands of USD as reported in Call Reports"
+    display_name: "Net Loans and Leases"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "insured_deposits"
+    type: float
+    description: "Estimated FDIC-insured deposits (covered up to $250K per depositor) in thousands of USD"
+    display_name: "Insured Deposits"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "uninsured_deposits"
+    type: float
+    description: "Estimated deposits exceeding FDIC insurance coverage limits, in thousands of USD"
+    display_name: "Uninsured Deposits"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "return_on_assets"
+    type: float
+    description: "Return on assets: annualized net income as a percentage of average total assets"
+    display_name: "Return on Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "return_on_equity"
+    type: float
+    description: "Return on equity: annualized net income as a percentage of average total equity capital"
+    display_name: "Return on Equity"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "net_interest_margin"
+    type: float
+    description: "Net interest margin: net interest income as a percentage of average earning assets"
+    display_name: "Net Interest Margin"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "number_of_employees"
+    type: float
+    description: "Total number of full-time equivalent employees as reported in Call Reports"
+    display_name: "Number of Employees"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "interest_income"
+    type: float
+    description: "Total interest income for the reporting period, in thousands of USD"
+    display_name: "Interest Income"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "interest_expense"
+    type: float
+    description: "Total interest expense for the reporting period, in thousands of USD"
+    display_name: "Interest Expense"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  # --- Failure Identifiers (source: fdic_failure) ---
+
+  - name: "fdic_financial_institution_number"
+    type: string
+    description: "FDIC Financial Institution Number assigned to a failed bank, derived from the FIN field in the Failures API"
+    display_name: "FDIC Financial Institution Number"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["2470", "10537"]
+    passive: true
+
+  # --- Failure Information (source: fdic_failure) ---
+
+  - name: "failure_date"
+    type: string
+    description: "Date the institution was closed by its chartering authority, reformatted from FAILDATE to YYYY-MM-DD"
+    display_name: "Failure Date"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["2026-01-30", "2025-06-27"]
+    passive: true
+
+  - name: "failure_resolution_type"
+    type: string
+    description: "Type of FDIC resolution action taken (e.g., P&A=Purchase and Assumption, PI=Purchase and Assumption Insured Deposits, PA=Purchase and Assumption All Deposits, PO=Payout)"
+    display_name: "Failure Resolution Type"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["P&A", "PI", "PA", "PO"]
+    passive: true
+
+  - name: "failure_estimated_loss"
+    type: float
+    description: "Estimated loss to the FDIC Deposit Insurance Fund from the institution's failure, in thousands of USD; may be updated as estimates are finalized"
+    display_name: "Failure Estimated Loss"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["23460.0", "30284.0"]
+    passive: true
+
+  - name: "failure_total_deposits"
+    type: float
+    description: "Total deposits held by the institution at the time of failure, in thousands of USD"
+    display_name: "Failure Total Deposits"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "failure_total_assets"
+    type: float
+    description: "Total assets held by the institution at the time of failure, in thousands of USD"
+    display_name: "Failure Total Assets"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+relationships:
+  - name: "is_located_at"
+    description: "An entity is located at, operates in, resides in, is headquartered in, was born in, visits, or died in a location"
+    display_name: "Located At"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["location"]
+    examples: ["JPMorgan Chase Bank is located at Columbus, OH"]
+    passive: true
+
+  - name: "acquired_by"
+    description: "Links a failed institution to the acquiring institution that purchased its assets and/or assumed its deposits during FDIC resolution; derived from the BIDNAME field in the Failures API"
+    display_name: "Acquired By"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    examples: ["First Independence Bank acquired Metropolitan Capital B&T"]
+    passive: true

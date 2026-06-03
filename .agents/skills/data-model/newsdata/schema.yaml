@@ -1,0 +1,660 @@
+# Dataset schema for newsdata article extraction.
+#
+# This schema defines the entity types, relationships, and attributes
+# extracted from news articles via freetext LLM extraction. Most elements
+# are active (no passive flag), which means they are extracted by the LLM.
+# Some elements are passive (passive: true), which means they are created
+# by the atomizer from metadata (URL parsing, page rank APIs, LSH dedup, etc.)
+# rather than LLM extraction.
+#
+# NOTE: All elements are currently marked not_mergeable because the resolution
+# services do not yet support clustering. Once flavor, property, and
+# relationship resolution services are operational, switch common elements
+# (person, organization, head_of, works_at, etc.) to mergeable.
+name: "newsdata"
+description: "Entities and relationships extracted from news articles, press releases, and similar unstructured text sources"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+# =============================================================================
+# ACTIVE FLAVORS — extracted by the LLM
+# =============================================================================
+
+flavors:
+  - name: "person"
+    description: "A real person as opposed to a fictional character, such as a CEO, politician, or public figure"
+    display_name: "Person"
+    mergeability: not_mergeable
+    examples: ["James Taiclet", "Christine Amanpour", "Vladimir Putin"]
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    examples: ["Google", "Carnegie Mellon University", "The Department of Defense", "TSMC"]
+
+  - name: "location"
+    description: "A specific named geographic location such as a city, country, region, or landmark"
+    display_name: "Location"
+    mergeability: not_mergeable
+    examples: ["New York City", "San Francisco", "North America", "Bakery Square"]
+
+  - name: "financial_instrument"
+    description: "A specific asset that can be traded, such as a stock, ETF, bond, CD, or fund. Companies are organizations, NOT financial instruments. Specific currency amounts are NOT financial instruments."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    examples: ["Alphabet Inc Class C", "VanEck CLO ETF", "Marcus 14-Month High-Yield CD", "Vanguard 500 Index Fund"]
+
+  - name: "product"
+    description: "A specific tangible product being sold or marketed by an organization"
+    display_name: "Product"
+    mergeability: not_mergeable
+    examples: ["Ozempic", "GeForce GPUs", "Starlink Direct to Cell service"]
+
+  # PASSIVE FLAVORS — created by the atomizer, not the LLM
+
+  - name: "article"
+    description: "A news article or press release being processed"
+    display_name: "Article"
+    mergeability: not_mergeable
+    strong_id_properties: ["newsdata_id"]
+    passive: true
+
+  - name: "publication"
+    description: "A news publication or media outlet identified by its home URL"
+    display_name: "Publication"
+    mergeability: not_mergeable
+    strong_id_properties: ["homeUrl"]
+    passive: true
+
+# =============================================================================
+# ACTIVE RELATIONSHIPS — extracted by the LLM
+# =============================================================================
+
+relationships:
+  - name: "head_of"
+    description: "A person is the head of an organization or location, e.g., President, CEO, or equivalent top leadership role"
+    display_name: "Head Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization", "location"]
+
+  - name: "is_director"
+    description: "A person is on the board of directors of an organization. Not to be used for heads of organizations."
+    display_name: "Director Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+
+  - name: "works_at"
+    description: "A person is employed by, or is a founder of an organization. Not to be used for heads or board members of organizations."
+    display_name: "Works At"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+
+  - name: "trades_with"
+    description: "An organization or location (such as a country) trades with another organization or location. Not for relationships with people."
+    display_name: "Trades With"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "location"]
+    target_flavors: ["organization", "location"]
+
+  - name: "customer_of"
+    description: "An entity (such as an organization) is a customer of another entity in a business transaction"
+    display_name: "Customer Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["organization", "location"]
+
+  - name: "invests_in"
+    description: "An entity invests in, finances, or owns shares or stocks of another entity"
+    display_name: "Invests In"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["organization", "location", "financial_instrument"]
+
+  - name: "owns"
+    description: "A person or organization owns or controls another organization or location (such as real estate)."
+    display_name: "Owns"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["organization", "location", "financial_instrument", "product"]
+
+  - name: "is_included_in"
+    description: "An organization is included in a broad stock index or benchmark such as NASDAQ or S&P 500"
+    display_name: "Included In"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization", "financial_instrument"]
+
+  - name: "sues"
+    description: "A person or organization sues, or files a lawsuit against another person or organization"
+    display_name: "Sues"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["person", "organization"]
+
+  - name: "is_located_at"
+    description: "An entity is located at, operates in, resides in, is headquartered in, was born in, visits, or died in a location"
+    display_name: "Located At"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["location"]
+
+  - name: "commented_on"
+    description: "A person or organization made a public statement about another entity, including stock analyst ratings or price objectives"
+    display_name: "Commented On"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["person", "organization", "financial_instrument"]
+
+  - name: "is_colleague_of"
+    description: "Two people are colleagues. Not for relationships between locations or organizations."
+    display_name: "Colleague Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["person"]
+
+  - name: "competes_with"
+    description: "Two entities compete with each other, e.g., two competing companies, sports teams, or products"
+    display_name: "Competes With"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location", "financial_instrument", "product"]
+    target_flavors: ["person", "organization", "location", "financial_instrument", "product"]
+
+  - name: "partnered_with"
+    description: "Two entities partner with each other, e.g., two organizations co-hosting an event or forming a joint venture"
+    display_name: "Partnered With"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["person", "organization", "location"]
+
+  - name: "is_part_of"
+    description: "An organization is a part of a larger organization, e.g., a subdivision or subsidiary within a larger company"
+    display_name: "Part Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+
+  - name: "is_member_of"
+    description: "A person or organization is a member of another organization, e.g., a sports team in a league. Not mutually exclusive — entities can belong to multiple organizations."
+    display_name: "Member Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["organization"]
+
+  - name: "provides_support_to"
+    description: "An entity provides financial support to another entity. Reserved for sponsorship and donations, NOT for business transactions."
+    display_name: "Provides Support To"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization", "location"]
+    target_flavors: ["organization", "location"]
+
+  - name: "issues"
+    description: "An organization issues or manages a financial instrument, e.g., a company listed as an issuer of an exchange-traded fund"
+    display_name: "Issues"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument"]
+
+  - name: "serviced_by"
+    description: "A financial instrument (e.g., a pool of CMBS loans) is managed by a primary servicer"
+    display_name: "Serviced By"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    target_flavors: ["organization"]
+
+  - name: "sponsored_by"
+    description: "An asset (e.g., a CMBS, CLO, or an underlying loan) is sponsored by a specific entity that provides or owns the underlying collateral"
+    display_name: "Sponsored By"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    target_flavors: ["organization"]
+
+  - name: "compares_to"
+    description: "An organization is used as a comparable for analysis of another organization, e.g., BMW as a comparable company to Tesla"
+    display_name: "Compares To"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+
+  - name: "acquires"
+    description: "An organization acquires another organization"
+    display_name: "Acquires"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    examples: ["Palo Alto Networks acquiring Protect AI"]
+
+  - name: "launches"
+    description: "An organization launches a new product or financial instrument. NOT for expanding a business to new markets."
+    display_name: "Launches"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["product", "financial_instrument"]
+    examples: ["Barracuda Networks launching Entra ID Backup Premium"]
+
+  - name: "produces"
+    description: "An organization owns, develops, or markets a product"
+    display_name: "Produces"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["product"]
+    examples: ["Honeywell Anthem integrated flight deck from Honeywell"]
+
+  # PASSIVE RELATIONSHIPS — created by the atomizer, not the LLM
+
+  - name: "appears_in"
+    description: "An entity or event appears in a source document"
+    display_name: "Appears In"
+    mergeability: not_mergeable
+    target_flavors: ["article"]
+    passive: true
+
+  - name: "duplicate_of"
+    description: "An article is a near-duplicate of another article (detected by LSH)"
+    display_name: "Duplicate Of"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    target_flavors: ["article"]
+    passive: true
+
+  - name: "published_in"
+    description: "An article was published by a publication"
+    display_name: "Published In"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    target_flavors: ["publication"]
+    passive: true
+
+  - name: "original_publisher"
+    description: "An article's original publisher (when different from the source)"
+    display_name: "Original Publisher"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    target_flavors: ["publication"]
+    passive: true
+
+# =============================================================================
+# ACTIVE PROPERTIES — extracted by the LLM
+# =============================================================================
+
+properties:
+  - name: "tone"
+    type: string
+    description: "Whether the article is opinionated or presents factual reporting"
+    display_name: "Tone"
+    mergeability: not_mergeable
+    extraction_config:
+      level: document
+      classification:
+        values:
+          - name: "opinionated"
+            description: "The article contains editorial perspective or opinion"
+          - name: "matter-of-fact"
+            description: "The article presents factual reporting without editorializing"
+
+  - name: "title_factuality"
+    type: string
+    description: "Whether the article title is sensational or factual"
+    display_name: "Title Factuality"
+    mergeability: not_mergeable
+    extraction_config:
+      level: document
+      classification:
+        values:
+          - name: "sensational"
+            description: "The title is exaggerated, clickbait, or emotionally charged beyond what the article supports"
+          - name: "factual"
+            description: "The title accurately and neutrally reflects the article content"
+
+  - name: "sentiment"
+    type: float
+    description: "Classify the financial sentiment of the source text. Positive sentiment indicates events like revenue growth, strategic partnerships, or milestone achievement. Negative sentiment indicates events like economic downturn, natural disasters, or adverse market conditions."
+    display_name: "Sentiment"
+    mergeability: not_mergeable
+    extraction_config:
+      level: document
+      scoring:
+        scale:
+          labels:
+            - value: -1.0
+              name: "strongly negative"
+            - value: -0.5
+              name: "slightly negative"
+            - value: 0.0
+              name: "neutral"
+            - value: 0.5
+              name: "slightly positive"
+            - value: 1.0
+              name: "strongly positive"
+
+  - name: "entity_sentiment"
+    type: float
+    description: "Classify the financial sentiment of a specific entity mentioned in the source text. Positive sentiment indicates events like revenue growth, strategic partnerships, or milestone achievement. Negative sentiment indicates events like economic downturn, natural disasters, or adverse market conditions. If the entity is irrelevant to the subject matter, assign a neutral score."
+    display_name: "Entity Sentiment"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "location"]
+    extraction_config:
+      level: entity
+      scoring:
+        scale:
+          labels:
+            - value: -1.0
+              name: "strongly negative"
+            - value: -0.5
+              name: "slightly negative"
+            - value: 0.0
+              name: "neutral"
+            - value: 0.5
+              name: "slightly positive"
+            - value: 1.0
+              name: "strongly positive"
+
+  - name: "original_publication_name"
+    type: string
+    description: >-
+      Determine whether this article was syndicated or republished from a
+      different publication or wire service. Look for an explicit credit in the
+      byline (e.g., "(Reuters) -", "By Jane Doe, Bloomberg", "Source: AP") or
+      in a footer/disclaimer (e.g., "This article was originally published
+      by..."). Common wire services and syndicators include Reuters, Associated
+      Press (AP), AFP, Bloomberg, PRNewswire, GLOBE NEWSWIRE, and Business
+      Wire. Return ONLY the name of the original publication or wire service
+      exactly as credited. IMPORTANT: Most articles are NOT syndicated — they
+      are original content written by or for the website hosting them. If there
+      is no explicit syndication credit to a DIFFERENT publication, return
+      exactly "Not available". Do NOT return the name of the website hosting
+      the article, the article title, a company mentioned in the article, or
+      the author name. Do NOT guess — if you are unsure, return "Not available".
+    display_name: "Original Publication"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    extraction_config:
+      level: document
+      literal:
+        include_snippet: true
+
+  # PASSIVE PROPERTIES — created by the atomizer, not the LLM
+
+  - name: "has_topic"
+    type: string
+    description: "A topic associated with an article, derived from event categories"
+    display_name: "Topic"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    passive: true
+
+  - name: "newsdata_id"
+    type: string
+    description: "Unique article identifier from the NewsData API"
+    display_name: "NewsData ID"
+    mergeability: not_mergeable
+    domain_flavors: ["article"]
+    passive: true
+
+  - name: "title"
+    type: string
+    description: "Title of the entity"
+    display_name: "Title"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "homeUrl"
+    type: string
+    description: "The home URL of a publication"
+    display_name: "Home URL"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "domain"
+    type: string
+    description: "The domain name of a publication"
+    display_name: "Domain"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "name"
+    type: string
+    description: "Display name of the entity"
+    display_name: "Name"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "pageRank"
+    type: float
+    description: "Google PageRank score for a publication"
+    display_name: "PageRank"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "mozRank"
+    type: float
+    description: "Moz rank score for a publication"
+    display_name: "Moz Rank"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "pageAuthority"
+    type: float
+    description: "Moz page authority score for a publication"
+    display_name: "Page Authority"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "domainAuthority"
+    type: float
+    description: "Moz domain authority score for a publication"
+    display_name: "Domain Authority"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "externalLinks"
+    type: float
+    description: "Number of external links to a publication"
+    display_name: "External Links"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "links"
+    type: float
+    description: "Total number of links to a publication"
+    display_name: "Links"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "title_factuality_score"
+    type: float
+    description: "Aggregate title factuality score for a publication"
+    display_name: "Title Factuality Score"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "tone_objectivity_score"
+    type: float
+    description: "Aggregate tone objectivity score for a publication"
+    display_name: "Tone Objectivity Score"
+    mergeability: not_mergeable
+    passive: true
+
+# =============================================================================
+# PASSIVE ATTRIBUTES — created by the atomizer, not the LLM
+# =============================================================================
+
+attributes:
+  - property: "appears_in"
+    name: "source"
+    type: string
+    description: "Source document identifier"
+    display_name: "Source"
+    mergeability: not_mergeable
+
+  - property: "appears_in"
+    name: "url"
+    type: string
+    description: "URL of the source document"
+    display_name: "URL"
+    mergeability: not_mergeable
+
+  - property: "appears_in"
+    name: "batch"
+    type: string
+    description: "Batch identifier for the extraction run"
+    display_name: "Batch"
+    mergeability: not_mergeable
+
+  - property: "appears_in"
+    name: "trustworthiness"
+    type: float
+    description: "Trustworthiness score for the source publication"
+    display_name: "Trustworthiness"
+    mergeability: not_mergeable
+
+  - property: "appears_in"
+    name: "sentiment"
+    type: float
+    description: "Entity-level sentiment in the context of the source document"
+    display_name: "Sentiment"
+    mergeability: not_mergeable
+
+  - property: "sentiment"
+    name: "reasoning"
+    type: string
+    description: "Reasoning behind the sentiment score"
+    display_name: "Reasoning"
+    mergeability: not_mergeable
+
+# =============================================================================
+# EVENTS
+# =============================================================================
+
+events:
+  - name: "Bankruptcy"
+    description: "Bankruptcy of a company or person"
+    metadata: { severity: high }
+  - name: "Default"
+    description: "Default on a major loan or debt"
+    metadata: { severity: high }
+  - name: "Seizure"
+    description: "Seizure of assets or property typically by a government or law enforcement"
+    metadata: { severity: high }
+  - name: "Insolvency"
+    description: "Insolvency of a company"
+    metadata: { severity: high }
+  - name: "Expropriation"
+    description: "Expropriation of assets or property"
+    metadata: { severity: high }
+  - name: "Mergers & acquisitions"
+    description: "A merger or acquisition of a company"
+    metadata: { severity: high }
+  - name: "Hostile takeover"
+    description: "Acquiring a company against its management's wishes by purchasing a majority of shares"
+    metadata: { severity: high }
+  - name: "Acts of war"
+    description: "Direct reports of war activities. NOT for historical accounts or obituaries."
+    metadata: { severity: high }
+  - name: "Terrorism"
+    description: "Direct reports of terrorism that are actively happening or predicted to happen. Not for historical accounts."
+    metadata: { severity: high }
+  - name: "Significant legal judgement"
+    description: "Final verdicts in legal trials that directly affect a company, person, or location"
+    metadata: { severity: high }
+  - name: "Cybersecurity breach"
+    description: "A major breach of a company's cybersecurity especially if it will affect the market"
+    metadata: { severity: high }
+  - name: "Major natural disaster"
+    description: "A major, destructive natural disaster such as a hurricane, earthquake, tornado, wildfire, or flood"
+    metadata: { severity: high }
+  - name: "IPO"
+    description: "A report of an initial public offering (IPO) that has happened or is predicted to happen"
+    metadata: { severity: high }
+  - name: "SPAC"
+    description: "A report of a special purpose acquisition company (SPAC) that has happened or is predicted to happen"
+    metadata: { severity: high }
+  - name: "Win of long-term, high-value contract"
+    description: "Major contracts on the order of 10s of millions to billions of dollars"
+    metadata: { severity: high }
+  - name: "Technological breakthrough"
+    description: "Major technological breakthrough (not just adopting new technology). E.g., a new drug, new chip, new aircraft."
+    metadata: { severity: high }
+  - name: "Epidemic/pandemic disease"
+    description: "A major, worldwide or country-wide epidemic or pandemic disease affecting many people"
+    metadata: { severity: high }
+  - name: "Insider trading"
+    description: "Verified insider trading especially if the SEC is involved"
+    metadata: { severity: high }
+  - name: "Dividend announcement"
+    description: "Routine quarterly, monthly, etc. dividend announcements by a company"
+    metadata: { severity: medium }
+  - name: "Corporate restructuring"
+    description: "Restructuring of a company such as an internal reorganization. NOT for mergers or acquisitions."
+    metadata: { severity: medium }
+  - name: "Layoffs"
+    description: "Significant, verified layoffs/firings of staff (not just one or two people) from a company. NOT for labor shortages."
+    metadata: { severity: medium }
+  - name: "Customer loss"
+    description: "Loss of a major customer"
+    metadata: { severity: medium }
+  - name: "Product delays"
+    description: "Significant, verified delays in product delivery"
+    metadata: { severity: medium }
+  - name: "Major leadership change"
+    description: "Major leadership change at a company such as a CEO, CFO, CTO, or Chairman change from one person to another"
+    metadata: { severity: medium }
+  - name: "Credit rating downgrade"
+    description: "A credit rating downgrade of a company"
+    metadata: { severity: medium }
+  - name: "Credit rating upgrade"
+    description: "A credit rating upgrade of a company"
+    metadata: { severity: medium }
+  - name: "Strategic partnership"
+    description: "A strategic partnership between people and/or companies"
+    metadata: { severity: medium }
+  - name: "New funding or investment"
+    description: "Venture capital or private equity investment in a company, such as a Series A, B, etc."
+    metadata: { severity: medium }
+  - name: "Launch of a new product"
+    description: "Launch of a brand new product worthy of press releases (NOT for adopting existing technology)"
+    metadata: { severity: medium }
+  - name: "Major crime"
+    description: "Major crimes such as murder, robbery, etc."
+    metadata: { severity: medium }
+  - name: "Earnings call"
+    description: "Standard quarterly earnings calls"
+    metadata: { severity: medium }
+  - name: "Change in government policy"
+    description: "A significant change in government policy that might affect the financial health of an entity"
+    metadata: { severity: low }
+  - name: "Market commentary"
+    description: "Article discusses mundane changes in the market"
+    metadata: { severity: low }
+  - name: "Political commentary"
+    description: "Mundane political commentary such as polls or pundit analysis"
+    metadata: { severity: low }
+  - name: "Analyst report"
+    description: "Reports from Moody's, S&P Global Ratings, Fitch Ratings, and similar"
+    metadata: { severity: low }
+  - name: "Interview"
+    description: "The article is specifically an interview"
+    metadata: { severity: low }
+  - name: "Industry award"
+    description: "MAJOR awards such as the Nobel Prize, Pulitzer Prize, Turing Award, Edison Awards, etc."
+    metadata: { severity: low }
+  - name: "Regulatory filing & compliance"
+    description: "Typical or routine filings by a company for regulatory and compliance purposes"
+    metadata: { severity: low }
+  - name: "Personnel changes"
+    description: "A change in low- to medium-level personnel such as hiring a new engineer. NOT for major leadership changes or layoffs."
+    metadata: { severity: low }
+  - name: "Sports"
+    description: "Sports news such as a new record, a new player, scores, etc."
+    metadata: { severity: low }
+  - name: "Entertainment"
+    description: "Entertainment news such as a new movie, TV show, album, book, etc."
+    metadata: { severity: low }

@@ -1,0 +1,42 @@
+[
+    {
+        "name": "Medium Red",
+        "color": "#FF0000",
+        "size": 20
+    },
+    {
+        "name": "Medium Green",
+        "color": "#00FF00",
+        "size": 20
+    },
+    {
+        "name": "Medium Blue",
+        "color": "#0000FF",
+        "size": 20
+    },
+    {
+        "name": "Medium Yellow",
+        "color": "#FFFF00",
+        "size": 20
+    },
+    {
+        "name": "Small Red",
+        "color": "#FF0000",
+        "size": 20
+    },
+    {
+        "name": "Small Green",
+        "color": "#00FF00",
+        "size": 20
+    },
+    {
+        "name": "Small Blue",
+        "color": "#0000FF",
+        "size": 20
+    },
+    {
+        "name": "Small Yellow",
+        "color": "#FFFF00",
+        "size": 20
+    }
+]

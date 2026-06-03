@@ -1,0 +1,153 @@
+# Dataset schema for sanctions data (OpenSanctions).
+#
+# This schema describes entity types, properties, and relationships produced
+# by atomizing structured JSON from the OpenSanctions aggregated dataset.
+# All elements are passive — they are created by the atomizer from parsed
+# JSON fields, not by LLM extraction.
+name: "sanctions"
+description: "Sanctioned persons, organizations, and their associated sanctions programs from the OpenSanctions aggregated dataset"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "person"
+    description: "A real person as opposed to a fictional character, such as a CEO, politician, or public figure"
+    display_name: "Person"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "sanction_program"
+    description: "A government or international sanctions program under which entities are designated"
+    display_name: "Sanction Program"
+    mergeability: not_mergeable
+    passive: true
+
+  - name: "country"
+    description: "A country referenced by sanctioned organizations, identified by ISO country code"
+    display_name: "Country"
+    mergeability: not_mergeable
+    passive: true
+
+properties:
+  - name: "sanctions_id"
+    type: string
+    description: "Unique identifier assigned to this entity by the upstream sanctions data provider (OpenSanctions entity ID)"
+    display_name: "Sanctions ID"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    examples: ["ch-seco-94982", "us-ofac-12345"]
+    passive: true
+
+  - name: "name"
+    type: string
+    description: "Display name of the entity"
+    display_name: "Name"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    examples: ["Zhongheng Lin", "Vladimir Putin"]
+    passive: true
+
+  - name: "alias"
+    type: string
+    description: "An alternative name or spelling for this entity, one atom per alias"
+    display_name: "Alias"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    passive: true
+
+  - name: "birth_date"
+    type: string
+    description: "Date of birth as reported in the sanctions listing, in ISO 8601 format"
+    display_name: "Birth Date"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    examples: ["1958-01-06", "1952-10-07"]
+    passive: true
+
+  - name: "nationality"
+    type: string
+    description: "Nationality or country affiliation as a two-letter ISO country code, falling back to the country field when nationality is not specified"
+    display_name: "Nationality"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    examples: ["cn", "ru", "us"]
+    passive: true
+
+  - name: "position"
+    type: string
+    description: "Job title, political role, or official position as stated in the sanctions listing"
+    display_name: "Position"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    examples: ["President of Russia", "Owner of Shenzhen Biguang Technology"]
+    passive: true
+
+  - name: "sanctions_topic"
+    type: string
+    description: "Classification tag indicating the type of sanctions designation, one atom per topic"
+    display_name: "Sanctions Topic"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    examples: ["sanction", "poi", "debarment", "entity.associate"]
+    passive: true
+
+  - name: "notes"
+    type: string
+    description: "Descriptive notes or commentary associated with the entity"
+    display_name: "Notes"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    passive: true
+
+  - name: "sanctioned"
+    type: float
+    description: "Boolean flag indicating this entity is a sanctions target, emitted only when no notes are present as a fallback marker"
+    display_name: "Sanctioned"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    passive: true
+
+  - name: "address"
+    type: string
+    description: "Physical address of the sanctioned organization as stated in the sanctions listing"
+    display_name: "Address"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+  - name: "sector"
+    type: string
+    description: "Business sector or industry classification of the sanctioned organization"
+    display_name: "Sector"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    examples: ["Energy", "Banking", "Defense"]
+    passive: true
+
+relationships:
+  - name: "sanction_program"
+    description: "Links a sanctioned entity to the sanctions program under which it is designated"
+    display_name: "Sanction Program"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "organization"]
+    target_flavors: ["sanction_program"]
+    passive: true
+
+  - name: "country"
+    description: "Links a sanctioned organization to its associated country"
+    display_name: "Country"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["country"]
+    passive: true

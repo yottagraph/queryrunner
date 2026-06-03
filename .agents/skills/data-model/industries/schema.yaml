@@ -1,0 +1,64 @@
+# Dataset schema for SIC industry classifications derived from SEC EDGAR filings.
+#
+# This schema introduces the `industry` flavor — a Standard Industrial
+# Classification (SIC) category identified by its 4-digit code. Organizations
+# are linked to their industry via the `works_in_industry` relationship.
+#
+# All elements are passive (deterministic extraction from filing headers).
+name: "industries"
+description: "SIC industry classifications linking SEC-registered organizations to their Standard Industrial Classification codes"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+
+flavors:
+  - name: "industry"
+    description: "A Standard Industrial Classification (SIC) industry category assigned by the SEC"
+    display_name: "Industry"
+    mergeability: not_mergeable
+    strong_id_properties: ["sic_code"]
+    passive: true
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    strong_id_properties: ["company_cik"]
+    passive: true
+
+properties:
+  - name: "sic_code"
+    type: string
+    description: "Four-digit Standard Industrial Classification code"
+    display_name: "SIC Code"
+    mergeability: not_mergeable
+    domain_flavors: ["industry", "organization"]
+    passive: true
+
+  - name: "sic_description"
+    type: string
+    description: "Human-readable SIC code description"
+    display_name: "SIC Description"
+    mergeability: not_mergeable
+    domain_flavors: ["industry", "organization"]
+    passive: true
+
+  - name: "company_cik"
+    type: string
+    description: "SEC Central Index Key, 10-digit zero-padded"
+    display_name: "CIK"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    passive: true
+
+relationships:
+  - name: "works_in_industry"
+    description: "Link from an organization to its SIC industry classification"
+    display_name: "Works In Industry"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["industry"]
+    passive: true

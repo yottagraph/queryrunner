@@ -1,0 +1,598 @@
+# Dataset schema for BNY arbitrage rebate analysis reports.
+#
+# Extracts entities, properties, relationships, and events from Interim
+# Arbitrage Rebate Analysis PDF documents prepared by BLX Group LLC for
+# municipal bond issuers. BNY (Bank of New York Mellon) serves as trustee.
+#
+# Each report computes the arbitrage rebate liability under IRC Section 148
+# for a bond issue across a computation period. Reports contain transmittal
+# letters, legal opinions, notes/assumptions, summary schedules, and
+# detailed per-fund cash flow and investment data.
+#
+# Uses the ml/extraction library with WithTableExtractor for combined
+# entity + table extraction from PDF blobs via Gemini vision.
+
+
+  # These documents are structured compliance reports with a fixed format:
+  # transmittal letter, legal opinion, notes and assumptions, and financial
+  # schedules (A through G). Extract ONLY real-world entities — named
+  # organizations, the bond issue, fund accounts, and geographic locations.
+
+
+  # CRITICAL EXTRACTION RULES:
+
+  # - The bond issue is ONE financial_instrument entity. Use its full official
+  #   name as stated on the cover page (e.g. "$142,235,000 New Jersey Housing
+  #   and Mortgage Finance Agency Multifamily Housing Revenue Refunding Bonds
+  #   (Presidential Plaza at Newport Project-FHA Insured Mortgages) 1991 Series 1").
+  #   Do NOT extract the word "Bonds" alone as a separate entity.
+
+  # - Fund accounts are: Reserve I Account, Reserve II Account, Liquidity I
+  #   Account, Liquidity II Account, Prior Rebate Liability, Revenue Account,
+  #   Escrow Fund, Debt Service Reserve Account, Construction Account. Extract
+  #   these by their proper names ONLY.
+
+  # - Do NOT extract any of the following as entities:
+  #   * Schedule headings or titles (e.g. "Schedule A - Summary of Rebate
+  #     Analysis", "Schedule C1 - Reserve I Account")
+  #   * Table headers, column names, or row labels (e.g. "Fund Description",
+  #     "Totals:", "Sources of Funds")
+  #   * Document section names (e.g. "Transmittal Letter", "Notes and
+  #     Assumptions", "Report", "engagement letter")
+  #   * Amendment numbers (e.g. "AMENDMENT (NO. 002.00)")
+  #   * Telex numbers, account numbers, or reference codes
+  #   * The document title itself (e.g. "INTERIM ARBITRAGE REBATE ANALYSIS")
+  #   * Legal citation references (e.g. "Section 5.6", "IRC Section 148")
+  #   * Generic terms like "Prior Bonds" — use the full name instead
+
+  # - DO extract important related entities such as:
+  #   * The issuer of the bond
+  #   * related organizations such as real estate developers, important people, law firms, etc.
+  #   * important events such as bond issuance, bond refunding, fund valuation, rebate payment determination, report issuance, etc.
+  #   * important locations such as addresses, cities, and jurisdictions mentioned in the report.
+
+  # - IMPORTANT: Ensure that you extract important relationships between entities so that we are able
+  #   to build a graph of the bond issue and its related entities.
+
+  # - Securities held in fund accounts (e.g. "Morgan IA", "Federated MM")
+  #   are valid financial_instrument entities.
+
+  # - If this document is NOT an Interim Arbitrage Rebate Analysis (e.g. it
+  #   is a Letter of Credit, trust indenture, or other document type), extract
+  #   ZERO entities. Return an empty entities list.
+
+name: "bny"
+description: >-
+  Interim Arbitrage Rebate Analysis reports for municipal bond issues.
+  Documents contain bond details, fund account valuations, investment
+  holdings, cash flow tables, and rebate liability computations. Extract
+  the bond, its issuer, trustee, counsel, fund accounts, held securities,
+  and legal agreements. Each report is one observation of the bond's state
+  at a specific computation date.
+
+extraction:
+  flavors: closed
+  properties: open
+  relationships: closed
+  attributes: closed
+  events: closed
+
+# =============================================================================
+# FLAVORS
+# =============================================================================
+
+flavors:
+  - name: "document"
+    description: "A source PDF document in the BNY dataset. Created programmatically, not by LLM extraction."
+    display_name: "Document"
+    mergeability: not_mergeable
+    strong_id_properties: ["bny_document_id"]
+    passive: true
+
+  - name: "organization"
+    description: "Companies, agencies, law firms, financial institutions, and government bodies named in the report."
+    display_name: "Organization"
+    mergeability: not_mergeable
+    examples:
+      - "New Jersey Housing and Mortgage Finance Agency"
+      - "BLX Group LLC"
+      - "Orrick, Herrington & Sutcliffe LLP"
+      - "BNY"
+      - "Lefrak Organization"
+
+  - name: "fund_account"
+    description: "Bond proceeds sub-accounts tracked for arbitrage rebate computation (e.g. reserve funds, liquidity accounts)."
+    display_name: "Fund Account"
+    mergeability: not_mergeable
+    examples:
+      - "Reserve I Account"
+      - "Reserve II Account"
+      - "Liquidity I Account"
+      - "Liquidity II Account"
+      - "Prior Rebate Liability"
+
+  - name: "financial_instrument"
+    description: "Bonds, notes, and securities. Includes the main bond issue being analyzed and securities held within fund accounts as investments of bond proceeds."
+    display_name: "Financial Instrument"
+    mergeability: not_mergeable
+    strong_id_properties: ["client_matter_number"]
+    examples:
+      - "New Jersey Housing and Mortgage Finance Agency Multifamily Housing Revenue Refunding Bonds 1991 Series 1"
+      - "Morgan IA"
+      - "Federated MM"
+
+  - name: "legal_agreement"
+    description: "Governing legal documents referenced in the report: arbitrage certificates, prior reports, engagement letters."
+    display_name: "Legal Agreement"
+    mergeability: not_mergeable
+    examples:
+      - "Certificate as to Arbitrage"
+      - "Prior Report"
+
+  - name: "location"
+    description: "Addresses, cities, and jurisdictions mentioned in the report."
+    display_name: "Location"
+    mergeability: not_mergeable
+    examples:
+      - "Trenton, NJ"
+      - "Dallas, TX"
+      - "New York, NY"
+
+  - name: "person"
+    description: "Officers, signatories, or other named individuals."
+    display_name: "Person"
+    mergeability: not_mergeable
+
+# =============================================================================
+# PROPERTIES
+# =============================================================================
+
+properties:
+  # --- Document-level properties ---
+
+  - name: "bny_document_id"
+    type: string
+    description: "Numeric document identifier from the PDF filename (e.g. 26889358, 5816087). Used as strong ID for document entities."
+    display_name: "BNY Document ID"
+    mergeability: not_mergeable
+    domain_flavors: ["document"]
+    passive: true
+
+  # --- Bond-level properties (document-level, one per report) ---
+
+  - name: "client_matter_number"
+    type: string
+    description: "BLX Group client matter number uniquely identifying this bond engagement (e.g. 42182-2748). Used as strong ID."
+    display_name: "Client Matter Number"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["42182-2748"]
+
+  - name: "bonds_name"
+    type: string
+    description: "The full name of the bond issue being analyzed in this report, exactly as it appears in the document title or cover page. This identifies which financial_instrument entity is the primary bond."
+    display_name: "Bonds Name"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    extraction_config:
+      level: document
+      literal: {}
+
+  - name: "par_amount"
+    type: string
+    description: "Total par amount of the bond issue."
+    display_name: "Par Amount"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    examples: ["$142,235,000"]
+
+  - name: "dated_date"
+    type: string
+    description: "Dated date of the bonds."
+    display_name: "Dated Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "issue_date"
+    type: string
+    description: "Issue date of the bonds."
+    display_name: "Issue Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "bond_yield"
+    type: string
+    description: "Arbitrage yield / allowable yield on investments (e.g. 7.420898%)."
+    display_name: "Bond Yield"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "computation_period"
+    type: string
+    description: "The computation period covered by this report (e.g. October 17, 1991 through October 16, 2024)."
+    display_name: "Computation Period"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "rebate_computation_date"
+    type: string
+    description: "End date of the computation period (e.g. October 16, 2024). This is the 'as of' date for all values in the report."
+    display_name: "Rebate Computation Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+    extraction_config:
+      level: document
+      literal: {}
+
+  - name: "cumulative_rebate_liability"
+    type: string
+    description: "Total cumulative rebate liability amount."
+    display_name: "Cumulative Rebate Liability"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "rebate_payment_due"
+    type: string
+    description: "Rebate payment amount due to the United States."
+    display_name: "Rebate Payment Due"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "return_on_investments"
+    type: string
+    description: "Weighted return on investments since the prior computation date."
+    display_name: "Return on Investments"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "shortfall_pct"
+    type: string
+    description: "Shortfall percentage: return on investments minus bond yield."
+    display_name: "Shortfall Percentage"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "actual_gross_earnings"
+    type: string
+    description: "Total actual gross earnings across all funds."
+    display_name: "Actual Gross Earnings"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "allowable_gross_earnings"
+    type: string
+    description: "Total allowable gross earnings computed at the bond yield."
+    display_name: "Allowable Gross Earnings"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "report_date"
+    type: string
+    description: "Date the report was issued."
+    display_name: "Report Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  # --- Organization properties ---
+
+  - name: "org_type"
+    type: string
+    description: "Type of organization: government_agency, law_firm, financial_services, financial_institution, trust_company."
+    display_name: "Organization Type"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+
+  - name: "description"
+    type: string
+    description: "Short description or role of the entity in the deal."
+    display_name: "Description"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "legal_agreement"]
+
+  # --- Fund account properties (from Schedule A table extraction) ---
+
+  - name: "current_fund_status"
+    type: string
+    description: "Current status of the fund: Active or Inactive."
+    display_name: "Current Fund Status"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+
+  - name: "computation_date_valuation"
+    type: string
+    description: "Fair market value of the fund at the computation date."
+    display_name: "Computation Date Valuation"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+
+  - name: "gross_earnings"
+    type: string
+    description: "Total gross earnings for the fund."
+    display_name: "Gross Earnings"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+
+  - name: "internal_rate_of_return"
+    type: string
+    description: "Internal rate of return on the fund's investments."
+    display_name: "Internal Rate of Return"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+
+  - name: "excess_earnings"
+    type: string
+    description: "Excess earnings (negative means below yield). Applies to both the bond overall and individual fund accounts."
+    display_name: "Excess Earnings"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument", "fund_account"]
+
+  # --- Financial instrument properties (from security holdings tables) ---
+
+  - name: "instrument_par_amount"
+    type: string
+    description: "Par amount of the security held in a fund account."
+    display_name: "Par Amount"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "coupon"
+    type: string
+    description: "Coupon rate of the security (e.g. 7.000% or Variable)."
+    display_name: "Coupon"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "maturity_date"
+    type: string
+    description: "Maturity date of the security."
+    display_name: "Maturity Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "settlement_date"
+    type: string
+    description: "Settlement date of the security."
+    display_name: "Settlement Date"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "settlement_price"
+    type: string
+    description: "Settlement price of the security."
+    display_name: "Settlement Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "yield"
+    type: string
+    description: "Yield on the security."
+    display_name: "Yield"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "accreted_price"
+    type: string
+    description: "Accreted price of the security."
+    display_name: "Accreted Price"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "accrued_interest"
+    type: string
+    description: "Accrued interest amount on the security."
+    display_name: "Accrued Interest"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  - name: "value"
+    type: string
+    description: "Total value of the security (par + accrued interest)."
+    display_name: "Value"
+    mergeability: not_mergeable
+    domain_flavors: ["financial_instrument"]
+
+  # --- Legal agreement properties ---
+
+  - name: "agreement_type"
+    type: string
+    description: "Type of legal agreement: arbitrage_certificate, prior_report, engagement_letter."
+    display_name: "Agreement Type"
+    mergeability: not_mergeable
+    domain_flavors: ["legal_agreement"]
+
+  # --- Person properties ---
+
+  - name: "title"
+    type: string
+    description: "Person's title or role."
+    display_name: "Title"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+
+# =============================================================================
+# RELATIONSHIPS
+# =============================================================================
+
+relationships:
+  - name: "appears_in"
+    description: "An entity appears in (is mentioned in) a source document."
+    display_name: "Appears In"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "fund_account", "financial_instrument", "legal_agreement", "location", "person"]
+    target_flavors: ["document"]
+    passive: true
+
+  - name: "issuer_of"
+    description: "An organization issued the bonds."
+    display_name: "Issuer Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument", "legal_agreement"]
+
+  - name: "trustee_of"
+    description: "An organization serves as trustee of the bond issue."
+    display_name: "Trustee Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument"]
+
+  - name: "advisor_to"
+    description: "An entity serves as advisor (rebate analyst, bond counsel) to another entity."
+    display_name: "Advisor To"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person", "legal_agreement"]
+    target_flavors: ["financial_instrument", "legal_agreement", "organization"]
+
+  - name: "fund_of"
+    description: "A fund account belongs to the bond issue."
+    display_name: "Fund Of"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+    target_flavors: ["financial_instrument"]
+
+  - name: "holds_investment"
+    description: "A fund account holds a financial instrument as an investment."
+    display_name: "Holds Investment"
+    mergeability: not_mergeable
+    domain_flavors: ["fund_account"]
+    target_flavors: ["financial_instrument"]
+
+  - name: "party_to"
+    description: "An organization or person is a party to a legal agreement, bond issue, or letter of credit."
+    display_name: "Party To"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "person"]
+    target_flavors: ["legal_agreement", "financial_instrument"]
+
+  - name: "sponsor_of"
+    description: "An organization sponsors, develops, or is the principal behind a project, deal, fund, or another organization (e.g. real estate developer behind a housing project partnership)."
+    display_name: "Sponsor Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization", "financial_instrument", "location"]
+
+  - name: "developer_of"
+    description: "An organization is the developer of a project, deal, fund, or another organization (e.g. real estate developer behind a housing project partnership)."
+    display_name: "Developer Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization", "financial_instrument", "location"]
+
+  - name: "subsidiary_of"
+    description: "An organization is a subsidiary, affiliate, or controlled entity of another organization (e.g. a special purpose partnership controlled by a developer)."
+    display_name: "Subsidiary Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+
+  - name: "borrower_of"
+    description: "An organization is the borrower, applicant, or account party on a financial instrument such as a letter of credit, loan, or bond issue."
+    display_name: "Borrower Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument", "legal_agreement"]
+
+  - name: "beneficiary_of"
+    description: "An organization is the beneficiary of a financial instrument, letter of credit, or trust arrangement."
+    display_name: "Beneficiary Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["financial_instrument", "legal_agreement"]
+
+  - name: "guarantor_of"
+    description: "An organization guarantees another organization's obligations or a financial instrument (e.g. letter of credit provider)."
+    display_name: "Guarantor Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization", "financial_instrument"]
+
+  - name: "successor_to"
+    description: "An entity succeeded another entity in a role (e.g. successor trustee, bank name change, corporate merger)."
+    display_name: "Successor To"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "financial_instrument"]
+    target_flavors: ["organization", "financial_instrument"]
+
+  - name: "signatory_of"
+    description: "A person signed or executed a document or agreement on behalf of an organization."
+    display_name: "Signatory Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["legal_agreement", "financial_instrument", "organization"]
+
+  - name: "located_at"
+    description: "An entity is located at a geographic location."
+    display_name: "Located At"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["location"]
+
+  - name: "predecessor_of"
+    description: "A prior report or agreement preceded the current one."
+    display_name: "Predecessor Of"
+    mergeability: not_mergeable
+    domain_flavors: ["legal_agreement", "financial_instrument", "organization"]
+    target_flavors: ["legal_agreement", "financial_instrument", "organization"]
+
+  - name: "head_of"
+    description: "A person is the head of an organization or location, e.g., President, CEO, or equivalent top leadership role"
+    display_name: "Head Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization", "location"]
+
+  - name: "is_director"
+    description: "A person is on the board of directors of an organization. Not to be used for heads of organizations."
+    display_name: "Director Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+
+  - name: "works_at"
+    description: "A person is employed by, or is a founder of an organization. Not to be used for heads or board members of organizations."
+    display_name: "Works At"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+
+
+# =============================================================================
+# EVENTS
+# =============================================================================
+
+events:
+  - name: "Rebate computation"
+    description: "Periodic computation of arbitrage rebate liability under IRC Section 148"
+    metadata: { severity: medium }
+
+  - name: "Bond issuance"
+    description: "Original issuance of the bonds"
+    metadata: { severity: high }
+
+  - name: "Bond refunding"
+    description: "Refunding or refinancing of prior bonds using proceeds from this issue"
+    metadata: { severity: high }
+
+  - name: "Fund valuation"
+    description: "Valuation of bond fund accounts at the computation date"
+    metadata: { severity: medium }
+
+  - name: "Rebate payment determination"
+    description: "Formal determination of the rebate payment amount owed to the IRS"
+    metadata: { severity: high }
+
+  - name: "Report issuance"
+    description: "Issuance of the rebate analysis report by BLX Group"
+    metadata: { severity: low }
+
+  - name: "LOC issuance"
+    description: "Issuance of a letter of credit providing credit enhancement or liquidity support"
+    metadata: { severity: high }
+
+  - name: "LOC amendment"
+    description: "Amendment to a letter of credit extending its validity, changing terms, or updating parties"
+    metadata: { severity: medium }
+
+  - name: "Party succession"
+    description: "Succession of a key deal party (e.g. trustee, bank, beneficiary) from one entity to another"
+    metadata: { severity: medium }

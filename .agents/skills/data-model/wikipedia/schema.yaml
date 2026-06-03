@@ -1,0 +1,255 @@
+# Dataset schema for Wikipedia entity data.
+#
+# Entities are classified by type using Wikidata P31 (instance of) from the
+# truthy dump. Summaries are fetched via the MediaWiki API. All elements are
+# passive — deterministic extraction, no LLM.
+name: "wikipedia"
+description: "People, locations, and organizations from English Wikipedia with introductory summaries and Wikidata identifiers"
+
+extraction:
+  flavors: closed
+  properties: closed
+  relationships: closed
+  attributes: closed
+  events: closed
+
+flavors:
+  - name: "person"
+    description: "A real person as opposed to a fictional character, such as a CEO, politician, or public figure"
+    display_name: "Person"
+    mergeability: not_mergeable
+    strong_id_properties: ["wikidata_qid"]
+    passive: true
+
+  - name: "location"
+    description: "A specific named geographic location such as a city, country, region, or landmark"
+    display_name: "Location"
+    mergeability: not_mergeable
+    strong_id_properties: ["wikidata_qid"]
+    passive: true
+
+  - name: "organization"
+    description: "A particular business, institution, or organization such as a corporation, university, government agency, or non-profit"
+    display_name: "Organization"
+    mergeability: not_mergeable
+    strong_id_properties: ["wikidata_qid"]
+    passive: true
+
+properties:
+  - name: "wikidata_qid"
+    type: string
+    description: "Wikidata item identifier, globally unique and stable"
+    display_name: "Wikidata QID"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "location", "organization"]
+    examples: ["Q42", "Q62", "Q312"]
+    passive: true
+
+  - name: "wikibase_shortdesc"
+    type: string
+    description: "Short human-readable description from Wikidata summarizing what the entity is"
+    display_name: "Short Description"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "location", "organization"]
+    examples: ["English author, humorist, and screenwriter", "City and county in California, United States", "American multinational technology company"]
+    passive: true
+
+  - name: "wikipedia_summary"
+    type: string
+    description: "First paragraph of the entity's English Wikipedia article intro in plain text"
+    display_name: "Wikipedia Summary"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "location", "organization"]
+    passive: true
+
+  - name: "wikipedia_extended_summary"
+    type: string
+    description: "Remaining paragraphs of the Wikipedia article intro beyond the first paragraph, in plain text"
+    display_name: "Wikipedia Extended Summary"
+    mergeability: not_mergeable
+    domain_flavors: ["person", "location", "organization"]
+    passive: true
+
+relationships:
+  # Person → Location
+  - name: "born_in"
+    description: "Place where the person was born (Wikidata P19)"
+    display_name: "Born In"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "died_in"
+    description: "Place where the person died (Wikidata P20)"
+    display_name: "Died In"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "citizen_of"
+    description: "Country of citizenship (Wikidata P27)"
+    display_name: "Citizen Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "resides_in"
+    description: "Place of residence (Wikidata P551)"
+    display_name: "Resides In"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["location"]
+    passive: true
+
+  # Person → Organization
+  - name: "educated_at"
+    description: "Educational institution attended (Wikidata P69)"
+    display_name: "Educated At"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "employed_by"
+    description: "Organization that employs or employed the person (Wikidata P108)"
+    display_name: "Employed By"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "member_of"
+    description: "Organization the person is or was a member of, including political parties and sports teams (Wikidata P102, P54, P463)"
+    display_name: "Member Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["organization"]
+    passive: true
+
+  # Person → Person
+  - name: "has_father"
+    description: "The person's father (Wikidata P22)"
+    display_name: "Has Father"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["person"]
+    passive: true
+
+  - name: "has_mother"
+    description: "The person's mother (Wikidata P25)"
+    display_name: "Has Mother"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["person"]
+    passive: true
+
+  - name: "spouse_of"
+    description: "The person's spouse or partner (Wikidata P26)"
+    display_name: "Spouse Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["person"]
+    passive: true
+
+  - name: "parent_of"
+    description: "The person's child (Wikidata P40)"
+    display_name: "Parent Of"
+    mergeability: not_mergeable
+    domain_flavors: ["person"]
+    target_flavors: ["person"]
+    passive: true
+
+  # Organization/Location → Location
+  - name: "headquartered_in"
+    description: "Location of the organization's headquarters (Wikidata P159)"
+    display_name: "Headquartered In"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "in_country"
+    description: "Country the entity is associated with (Wikidata P17)"
+    display_name: "In Country"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "location"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "located_in"
+    description: "Administrative territory or location the entity is situated in (Wikidata P131, P276)"
+    display_name: "Located In"
+    mergeability: not_mergeable
+    domain_flavors: ["organization", "location"]
+    target_flavors: ["location"]
+    passive: true
+
+  # Organization → Organization
+  - name: "subsidiary_of"
+    description: "Parent organization (Wikidata P749)"
+    display_name: "Subsidiary Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "parent_org_of"
+    description: "Subsidiary organization (Wikidata P355)"
+    display_name: "Parent Org Of"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization"]
+    passive: true
+
+  - name: "owned_by"
+    description: "Owner of the organization (Wikidata P127)"
+    display_name: "Owned By"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["organization", "person"]
+    passive: true
+
+  # Organization → Person
+  - name: "founded_by"
+    description: "Person who founded the organization (Wikidata P112)"
+    display_name: "Founded By"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["person"]
+    passive: true
+
+  - name: "has_ceo"
+    description: "Chief executive officer of the organization (Wikidata P169)"
+    display_name: "Has CEO"
+    mergeability: not_mergeable
+    domain_flavors: ["organization"]
+    target_flavors: ["person"]
+    passive: true
+
+  # Location → Location
+  - name: "has_capital"
+    description: "Capital city or seat of government (Wikidata P36)"
+    display_name: "Has Capital"
+    mergeability: not_mergeable
+    domain_flavors: ["location"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "contains"
+    description: "Administrative territory contained within this location (Wikidata P150)"
+    display_name: "Contains"
+    mergeability: not_mergeable
+    domain_flavors: ["location"]
+    target_flavors: ["location"]
+    passive: true
+
+  - name: "borders"
+    description: "Location that shares a border with this one (Wikidata P47)"
+    display_name: "Borders"
+    mergeability: not_mergeable
+    domain_flavors: ["location"]
+    target_flavors: ["location"]
+    passive: true

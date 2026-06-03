@@ -6,86 +6,86 @@
    These are populated by the useNewsTheme composable */
 .theme-brand,
 .news-theme {
-  --theme-primary: var(--dynamic-primary);
-  --theme-secondary: var(--dynamic-secondary);
-  --theme-accent: var(--dynamic-accent);
-  --theme-background: var(--dynamic-background);
-  --theme-surface: var(--dynamic-surface);
-  --theme-card-background: var(--dynamic-card-background);
-  --theme-panel-background: var(--dynamic-panel-background);
-  --theme-text: var(--dynamic-text-primary);
-  --theme-text-secondary: var(--dynamic-text-secondary);
-  --theme-text-muted: var(--dynamic-text-muted);
-  --theme-hover: var(--dynamic-hover);
-  --theme-border: var(--dynamic-border);
-  --theme-success: var(--dynamic-success);
-  --theme-warning: var(--dynamic-warning);
-  --theme-error: var(--dynamic-error);
-  --theme-header-gradient-start: var(--dynamic-header-gradient-start);
-  --theme-header-gradient-end: var(--dynamic-header-gradient-end);
+    --theme-primary: var(--dynamic-primary);
+    --theme-secondary: var(--dynamic-secondary);
+    --theme-accent: var(--dynamic-accent);
+    --theme-background: var(--dynamic-background);
+    --theme-surface: var(--dynamic-surface);
+    --theme-card-background: var(--dynamic-card-background);
+    --theme-panel-background: var(--dynamic-panel-background);
+    --theme-text: var(--dynamic-text-primary);
+    --theme-text-secondary: var(--dynamic-text-secondary);
+    --theme-text-muted: var(--dynamic-text-muted);
+    --theme-hover: var(--dynamic-hover);
+    --theme-border: var(--dynamic-border);
+    --theme-success: var(--dynamic-success);
+    --theme-warning: var(--dynamic-warning);
+    --theme-error: var(--dynamic-error);
+    --theme-header-gradient-start: var(--dynamic-header-gradient-start);
+    --theme-header-gradient-end: var(--dynamic-header-gradient-end);
 }
 
 /* ===================================
    Card Header Gradient
    =================================== */
 .card-header-gradient {
-  background: linear-gradient(135deg, var(--lv-surface), var(--lv-surface-light)) !important;
-  border-bottom: 1px solid var(--lv-green-dim) !important;
-  color: var(--lv-white) !important;
-  padding: 12px 16px !important;
-  position: relative;
-  height: 56px !important;
-  box-sizing: border-box !important;
+    background: linear-gradient(135deg, var(--lv-surface), var(--lv-surface-light)) !important;
+    border-bottom: 1px solid var(--lv-green-dim) !important;
+    color: var(--lv-white) !important;
+    padding: 12px 16px !important;
+    position: relative;
+    height: 56px !important;
+    box-sizing: border-box !important;
 }
 
 /* Force v-card-title with card-header-gradient to have consistent styles */
 .v-card-title.card-header-gradient {
-  padding: 12px 16px !important;
-  height: 56px !important;
-  line-height: 32px !important;
-  font-size: 1.125rem !important;
+    padding: 12px 16px !important;
+    height: 56px !important;
+    line-height: 32px !important;
+    font-size: 1.125rem !important;
 }
 
 /* Force ALL v-card-title elements in news dashboard to have consistent height */
 .news-analytics-dashboard-wrapper .v-card-title {
-  height: 56px !important;
-  min-height: 56px !important;
-  max-height: 56px !important;
-  padding: 12px 16px !important;
-  line-height: 32px !important;
-  font-size: 1.125rem !important;
-  box-sizing: border-box !important;
-  display: flex !important;
-  align-items: center !important;
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+    padding: 12px 16px !important;
+    line-height: 32px !important;
+    font-size: 1.125rem !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
 }
 
 .card-header-gradient span,
 .card-header-gradient .v-btn,
 .card-header-gradient .v-icon,
 .card-header-gradient .v-chip {
-  color: var(--lv-white) !important;
+    color: var(--lv-white) !important;
 }
 
 /* ===================================
    Theme-Aware Card Styles
    =================================== */
 .theme-card {
-  background-color: var(--theme-surface) !important;
-  border: 1px solid var(--theme-border) !important;
-  color: var(--theme-text) !important;
+    background-color: var(--theme-surface) !important;
+    border: 1px solid var(--theme-border) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-card-title {
-  color: var(--theme-text) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-card-text {
-  color: var(--theme-text) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-card .text-caption,
 .theme-card .text-grey {
-  color: var(--theme-text-secondary) !important;
+    color: var(--theme-text-secondary) !important;
 }
 
 /* ===================================
@@ -94,63 +94,63 @@
 
 /* Default button toggle styles */
 .v-btn-toggle .v-btn {
-  text-transform: none;
-  font-weight: 500;
+    text-transform: none;
+    font-weight: 500;
 }
 
 /* Unselected buttons */
 .v-btn-toggle .v-btn:not(.v-btn--active),
 .v-btn-group .v-btn:not(.v-btn--active) {
-  color: rgba(255, 255, 255, 0.9) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
 }
 
 /* Selected buttons -- Cyber Green highlight */
 .v-btn-toggle .v-btn.v-btn--active,
 .v-btn-group .v-btn.v-btn--active {
-  background-color: var(--lv-green) !important;
-  color: var(--lv-black) !important;
-  border-color: var(--lv-green) !important;
-  font-weight: 600 !important;
-  box-shadow: 0 0 12px rgba(63, 234, 0, 0.3) !important;
-  opacity: 1 !important;
-  transform: none !important;
+    background-color: var(--lv-green) !important;
+    color: var(--lv-black) !important;
+    border-color: var(--lv-green) !important;
+    font-weight: 600 !important;
+    box-shadow: 0 0 12px rgba(63, 234, 0, 0.3) !important;
+    opacity: 1 !important;
+    transform: none !important;
 }
 
 /* Also target the variant-outlined specifically */
 .v-app .v-btn-toggle .v-btn--variant-outlined.v-btn--active {
-  background-color: var(--lv-green) !important;
-  color: var(--lv-black) !important;
-  border-color: var(--lv-green) !important;
+    background-color: var(--lv-green) !important;
+    color: var(--lv-black) !important;
+    border-color: var(--lv-green) !important;
 }
 
 /* Remove Vuetify's default overlay effects */
 .v-app .v-btn-toggle .v-btn--active::before,
 .v-app .v-btn-toggle .v-btn--active::after {
-  opacity: 0 !important;
+    opacity: 0 !important;
 }
 
 /* Hover states for unselected buttons */
 .v-btn-toggle .v-btn:not(.v-btn--active):hover,
 .v-btn-group .v-btn:not(.v-btn--active):hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
+    background-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* Consistent transition and sizing */
 .v-app .v-btn-toggle .v-btn {
-  transition: all 0.2s ease !important;
-  border-radius: 4px !important;
-  padding: 0 16px !important;
-  min-height: 36px !important;
-  letter-spacing: normal !important;
+    transition: all 0.2s ease !important;
+    border-radius: 4px !important;
+    padding: 0 16px !important;
+    min-height: 36px !important;
+    letter-spacing: normal !important;
 }
 
 /* Fix potential Vuetify override issues */
 .view-mode-toggle .v-btn--variant-outlined.v-btn--active::before {
-  opacity: 0 !important;
+    opacity: 0 !important;
 }
 
 .time-window-toggle .v-btn--variant-outlined.v-btn--active::before {
-  opacity: 0 !important;
+    opacity: 0 !important;
 }
 
 /* ===================================
@@ -159,38 +159,38 @@
 
 /* Text with theme awareness */
 .theme-text-primary {
-  color: var(--theme-text) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-text-secondary {
-  color: var(--theme-text-secondary) !important;
+    color: var(--theme-text-secondary) !important;
 }
 
 .theme-text-muted {
-  color: var(--theme-text-muted) !important;
+    color: var(--theme-text-muted) !important;
 }
 
 /* Background with theme awareness */
 .theme-bg-surface {
-  background-color: var(--theme-surface) !important;
+    background-color: var(--theme-surface) !important;
 }
 
 .theme-bg-card {
-  background-color: var(--theme-card-background) !important;
+    background-color: var(--theme-card-background) !important;
 }
 
 .theme-bg-panel {
-  background-color: var(--theme-panel-background) !important;
+    background-color: var(--theme-panel-background) !important;
 }
 
 /* Border with theme awareness */
 .theme-border {
-  border-color: var(--theme-border) !important;
+    border-color: var(--theme-border) !important;
 }
 
 /* Hover effects */
 .theme-hover:hover {
-  background-color: var(--theme-hover) !important;
+    background-color: var(--theme-hover) !important;
 }
 
 /* ===================================
@@ -199,79 +199,79 @@
 
 /* Metric cards */
 .theme-metric-card {
-  background-color: var(--theme-surface) !important;
-  border: 1px solid var(--theme-border) !important;
-  color: var(--theme-text) !important;
+    background-color: var(--theme-surface) !important;
+    border: 1px solid var(--theme-border) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-metric-label {
-  color: var(--theme-text-secondary) !important;
-  font-size: 0.875rem;
+    color: var(--theme-text-secondary) !important;
+    font-size: 0.875rem;
 }
 
 .theme-metric-value {
-  color: var(--theme-text) !important;
-  font-weight: 600;
+    color: var(--theme-text) !important;
+    font-weight: 600;
 }
 
 /* Data tables */
 .theme-data-table {
-  background-color: var(--theme-surface) !important;
+    background-color: var(--theme-surface) !important;
 }
 
 .theme-data-table th {
-  background-color: var(--theme-panel-background) !important;
-  color: var(--theme-text) !important;
+    background-color: var(--theme-panel-background) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-data-table td {
-  color: var(--theme-text) !important;
-  border-bottom: 1px solid var(--theme-border) !important;
+    color: var(--theme-text) !important;
+    border-bottom: 1px solid var(--theme-border) !important;
 }
 
 /* Lists */
 .theme-list {
-  background-color: transparent !important;
+    background-color: transparent !important;
 }
 
 .theme-list .v-list-item {
-  color: var(--theme-text) !important;
-  background-color: transparent !important;
+    color: var(--theme-text) !important;
+    background-color: transparent !important;
 }
 
 .theme-list .v-list-item:hover {
-  background-color: var(--theme-hover) !important;
+    background-color: var(--theme-hover) !important;
 }
 
 /* Ensure list item titles and subtitles use theme colors */
 .theme-list .v-list-item-title {
-  color: var(--theme-text) !important;
+    color: var(--theme-text) !important;
 }
 
 .theme-list .v-list-item-subtitle {
-  color: var(--theme-text-secondary) !important;
+    color: var(--theme-text-secondary) !important;
 }
 
 /* Disabled list items */
 .theme-list .v-list-item--disabled .v-list-item-title {
-  color: var(--theme-text-secondary) !important;
-  opacity: 0.6;
+    color: var(--theme-text-secondary) !important;
+    opacity: 0.6;
 }
 
 /* Force override Vuetify's default list item background */
 .theme-list .v-list-item::before {
-  background-color: transparent !important;
+    background-color: transparent !important;
 }
 
 .theme-list .v-list-item.cursor-pointer:hover {
-  background-color: var(--theme-hover) !important;
+    background-color: var(--theme-hover) !important;
 }
 
 /* Dark input styling */
 .v-field--focused {
-  background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .v-field__input {
-  color: white;
+    color: white;
 }
