@@ -34,6 +34,10 @@ broadchurch.yaml
 # configured. One JSON file per user per scope.
 .aether-dev-prefs/
 
+# Per-component stack logs captured into query traces during local dev
+# (see server/utils/stackLogs.ts).
+.aether-dev-logs/
+
 # Python virtual environments (for agents and MCP servers)
 .venv/
 agents/.venv/

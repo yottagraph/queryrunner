@@ -17,6 +17,7 @@ import type { ExecuteRequest, QueryResult } from '~/types/queryrunner';
 import { describeExpectation } from '~/types/queryrunner';
 import { runQueryAgent, judgeAnswer } from '~/server/utils/queryAgent';
 import { saveTrace } from '~/server/utils/queryTraceStore';
+import { snapshotStackLogOffsets, collectStackLogsSince } from '~/server/utils/stackLogs';
 
 export default defineEventHandler(async (event): Promise<QueryResult> => {
     const startedAt = Date.now();
@@ -35,7 +36,15 @@ export default defineEventHandler(async (event): Promise<QueryResult> => {
     const runtime = useRuntimeConfig();
     const model = ((runtime.public as Record<string, unknown>)?.queryAgentModel as string) || '';
 
+    // Mark each component logfile's length before the agent runs; the lines
+    // appended by the time it returns are exactly this query's stack logs.
+    const logOffsets = snapshotStackLogOffsets();
     const { trace, durationMs } = await runQueryAgent(req.question, model);
+    // Let async log writers flush (the UI's own consola output lands a tick
+    // late; the agent/MCP access logs trail their HTTP response slightly) so
+    // this query's final lines make it into the captured window.
+    await new Promise((r) => setTimeout(r, 120));
+    trace.stackLogs = collectStackLogsSince(logOffsets);
     const toolCallCount = trace.toolCalls.length;
 
     // Agent transport/config/parse failure → clean error result.

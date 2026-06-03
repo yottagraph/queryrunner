@@ -112,8 +112,25 @@ the over-time pass-rate metric keeps working everywhere.
   agent output. Per-call timing comes from each ADK `function_call` /
   `function_response` event (the event's own `timestamp`, falling back to the
   server-observed time); offsets are anchored to the first tool call. Traces
-  captured before timing existed render the flow without bars.
+  captured before timing existed render the flow without bars. Also renders a
+  **Stack logs** section: per-component log windows (UI server, agent, MCP)
+  captured for that one query (see `stackLogs` below).
 - `components/QueryResultChip.vue`, `QueryRunnerNav.vue`, `PassRateSparkline.vue`.
+
+### Per-query stack logs (`server/utils/stackLogs.ts`)
+
+In local dev the three processes (Nuxt UI, `adk api_server`, `elemental-query`
+MCP) each tail their output to a logfile under `QUERYRUNNER_STACK_LOG_DIR`
+(default `.aether-dev-logs/`: `ui.log`, `agent.log`, `mcp.log`). `execute`
+records each logfile's byte length right before the agent runs and reads
+whatever got appended once it returns, so the delta is exactly that query's
+lines (queries run serially locally). The result is attached to the trace as
+`stackLogs: StackLog[]` and persisted/returned with the rest of the trace. A
+missing logfile (e.g. in a deployed environment that ships logs to Cloud
+Logging) is simply skipped, so the feature degrades to fewer sources. To wire
+it up locally, start each process with stdout/stderr redirected to its logfile
+(use `PYTHONUNBUFFERED=1` for the two Python processes so writes flush per
+line).
 
 ## Expected-answer judging
 
