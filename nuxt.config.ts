@@ -184,6 +184,12 @@ export default defineNuxtConfig({
         // below is then `agent_engine` and this is unused).
         agentBaseUrl: '',
 
+        // Explicit QueryRunner agent id override (server-only). When set,
+        // skips portal/tenant-config discovery. For `agent_engine` this is
+        // the Vertex engine_id; for `gke` it's the ADK app name. Set via
+        // `NUXT_QUERY_AGENT_ID`.
+        queryAgentId: '',
+
         public: {
             qsApiKey: bcYaml.qsApiKey,
             // App Identity — broadchurch.yaml provides defaults for provisioned projects
@@ -239,6 +245,11 @@ export default defineNuxtConfig({
 
             // User Configuration — bypass Auth0 in dev mode for provisioned projects
             userName: bcYaml.found && process.env.NODE_ENV !== 'production' ? 'dev-user' : '',
+
+            // QueryRunner agent model label — informational, recorded on
+            // each trace for A/B comparison. Keep in sync with the agent's
+            // QUERY_AGENT_MODEL default. Override via NUXT_PUBLIC_QUERY_AGENT_MODEL.
+            queryAgentModel: 'gemini-3.1-flash',
 
             // App Configuration
             versionString: 'release_internal-dev',

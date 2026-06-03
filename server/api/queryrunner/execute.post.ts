@@ -1,257 +1,94 @@
 /**
- * Execute a single QueryRunner test case against the Knowledge Graph.
+ * Execute a single QueryRunner test case.
  *
- * Server-side because:
- *  - We use the X-Api-Key path through the Portal Gateway (browser can't
- *    do that cross-origin).
- *  - We lean on `server/utils/elementalQs` for schema caching, dedup, and
- *    64-bit-safe ID handling.
+ * The new execution path: the query is a plaintext human-language question.
+ * We hand it to the app-hosted `query_runner_agent`, which navigates the
+ * Elemental Knowledge Graph through the `elemental-query` MCP toolset and
+ * returns ONE value. We parse that value, judge it deterministically against
+ * the query's `expected` answer (pass/fail), persist the full agent/MCP
+ * navigation trace to Postgres (when configured), and return a `QueryResult`
+ * with the trace inline for immediate inspection.
  *
- * Returns a QueryResult — never throws on test failure. The only thing
- * that produces an HTTP error from this route is a misshapen request
- * body or the QS being unconfigured.
+ * Returns a `QueryResult` — never throws on a test failure. Agent transport /
+ * configuration problems are surfaced as `error` (counted as an error, not a
+ * plain fail), so the harness keeps producing clean metrics.
  */
-import type {
-    ExecuteRequest,
-    QueryResult,
-    SearchValidator,
-    PropertyValidator,
-    LinkedCountValidator,
-} from '~/types/queryrunner';
-import { isQsConfigured, getPropertiesByName, findLinkedCount } from '~/server/utils/elementalQs';
-
-interface SearchMatch {
-    neid: string;
-    name: string;
-    flavor: string;
-    score?: number;
-}
-
-interface SearchResponse {
-    results?: { queryId: number; matches?: SearchMatch[] }[];
-}
-
-function gatewayConfig() {
-    const pub = (useRuntimeConfig().public ?? {}) as Record<string, string>;
-    return {
-        gatewayUrl: pub.gatewayUrl,
-        orgId: pub.tenantOrgId,
-        apiKey: pub.qsApiKey,
-    };
-}
-
-async function searchTopMatch(query: string): Promise<SearchMatch | null> {
-    const { gatewayUrl, orgId, apiKey } = gatewayConfig();
-    const url = `${gatewayUrl}/api/qs/${orgId}/entities/search`;
-    const res = await $fetch<SearchResponse>(url, {
-        method: 'POST',
-        headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
-        body: {
-            queries: [{ queryId: 1, query }],
-            maxResults: 3,
-            includeNames: true,
-        },
-    });
-    const matches = res?.results?.[0]?.matches ?? [];
-    return matches.length > 0 ? matches[0] : null;
-}
-
-async function resolveNeidByName(name: string): Promise<string | null> {
-    const top = await searchTopMatch(name);
-    return top?.neid ?? null;
-}
-
-function validateSearch(
-    match: SearchMatch | null,
-    validator: SearchValidator
-): { pass: boolean; actual: string; expected: string } {
-    if (validator.mode === 'has_match') {
-        return {
-            pass: match !== null,
-            actual: match ? `${match.name} (${match.flavor})` : '(no match)',
-            expected: 'at least one match',
-        };
-    }
-    if (!match) {
-        return { pass: false, actual: '(no match)', expected: validator.expected };
-    }
-    switch (validator.mode) {
-        case 'top_name_equals':
-            return {
-                pass: match.name === validator.expected,
-                actual: match.name,
-                expected: validator.expected,
-            };
-        case 'top_neid_equals':
-            return {
-                pass: match.neid === validator.expected,
-                actual: match.neid,
-                expected: validator.expected,
-            };
-        case 'top_flavor_equals':
-            return {
-                pass: match.flavor === validator.expected,
-                actual: match.flavor,
-                expected: validator.expected,
-            };
-    }
-}
-
-function validateProperty(
-    value: string | null,
-    validator: PropertyValidator
-): { pass: boolean; actual: string; expected: string } {
-    const actual = value ?? '(null)';
-    switch (validator.mode) {
-        case 'equals':
-            return { pass: value === validator.expected, actual, expected: validator.expected };
-        case 'contains':
-            return {
-                pass:
-                    value !== null &&
-                    value.toLowerCase().includes(validator.expected.toLowerCase()),
-                actual,
-                expected: `contains "${validator.expected}"`,
-            };
-        case 'not_null':
-            return {
-                pass: value !== null && value.length > 0,
-                actual,
-                expected: 'non-empty value',
-            };
-    }
-}
-
-function validateLinkedCount(
-    count: number,
-    validator: LinkedCountValidator
-): { pass: boolean; actual: string; expected: string } {
-    switch (validator.mode) {
-        case 'gte':
-            return {
-                pass: count >= validator.expected,
-                actual: String(count),
-                expected: `≥ ${validator.expected}`,
-            };
-        case 'equals':
-            return {
-                pass: count === validator.expected,
-                actual: String(count),
-                expected: `= ${validator.expected}`,
-            };
-    }
-}
+import type { ExecuteRequest, QueryResult } from '~/types/queryrunner';
+import { describeExpectation } from '~/types/queryrunner';
+import { runQueryAgent, judgeAnswer } from '~/server/utils/queryAgent';
+import { saveTrace } from '~/server/utils/queryTraceStore';
 
 export default defineEventHandler(async (event): Promise<QueryResult> => {
     const startedAt = Date.now();
     const req = await readBody<ExecuteRequest>(event);
 
-    if (!req || !req.body || !req.body.type || !req.queryId || !req.queryName) {
+    if (!req || !req.queryId || !req.question || !req.expected?.kind) {
         throw createError({
             statusCode: 400,
-            statusMessage: 'execute requires { queryId, queryName, body: { type, ... } }',
+            statusMessage:
+                'execute requires { queryId, queryName, question, expected: { kind, ... } }',
         });
     }
 
-    if (!isQsConfigured()) {
+    const queryName = req.queryName || req.question;
+    const expectedLabel = describeExpectation(req.expected);
+    const runtime = useRuntimeConfig();
+    const model = ((runtime.public as Record<string, unknown>)?.queryAgentModel as string) || '';
+
+    const { trace, durationMs } = await runQueryAgent(req.question, model);
+    const toolCallCount = trace.toolCalls.length;
+
+    // Agent transport/config/parse failure → clean error result.
+    if (trace.agentError) {
         return {
             queryId: req.queryId,
-            queryName: req.queryName,
+            queryName,
+            question: req.question,
             pass: false,
-            actual: '(not configured)',
-            expected: '(not configured)',
-            error: 'Query Server is not configured for this tenant (gateway / org / api key missing).',
-            durationMs: Date.now() - startedAt,
+            actual: '(agent error)',
+            expected: expectedLabel,
+            error: trace.agentError,
+            durationMs: durationMs || Date.now() - startedAt,
+            toolCallCount,
+            trace,
         };
     }
 
-    try {
-        if (req.body.type === 'search') {
-            const match = await searchTopMatch(req.body.query);
-            const v = validateSearch(match, req.body.validator);
-            return {
-                queryId: req.queryId,
-                queryName: req.queryName,
-                ...v,
-                durationMs: Date.now() - startedAt,
-            };
-        }
+    const { pass, actual } = judgeAnswer(trace.parsedAnswer, req.expected);
 
-        if (req.body.type === 'property') {
-            const neid = await resolveNeidByName(req.body.entity);
-            if (!neid) {
-                return {
-                    queryId: req.queryId,
-                    queryName: req.queryName,
-                    pass: false,
-                    actual: `(entity "${req.body.entity}" not found)`,
-                    expected:
-                        'expected' in req.body.validator
-                            ? req.body.validator.expected
-                            : 'non-empty value',
-                    durationMs: Date.now() - startedAt,
-                };
-            }
-            const { values, unknownProps } = await getPropertiesByName(neid, [req.body.property]);
-            if (unknownProps.length > 0) {
-                return {
-                    queryId: req.queryId,
-                    queryName: req.queryName,
-                    pass: false,
-                    actual: `(unknown property "${req.body.property}")`,
-                    expected:
-                        'expected' in req.body.validator
-                            ? req.body.validator.expected
-                            : 'non-empty value',
-                    durationMs: Date.now() - startedAt,
-                };
-            }
-            const value = values[req.body.property];
-            const v = validateProperty(value, req.body.validator);
-            return {
-                queryId: req.queryId,
-                queryName: req.queryName,
-                ...v,
-                durationMs: Date.now() - startedAt,
-            };
-        }
+    // If the agent produced no parseable JSON answer at all, flag it as an
+    // error (a harness problem to fix), not a silent content fail.
+    const noAnswer = trace.rawAnswerJson === null && trace.parsedAnswer === null;
+    const error = noAnswer ? 'Agent did not return a parseable JSON answer block.' : undefined;
 
-        if (req.body.type === 'linked_count') {
-            const neid = await resolveNeidByName(req.body.entity);
-            if (!neid) {
-                return {
-                    queryId: req.queryId,
-                    queryName: req.queryName,
-                    pass: false,
-                    actual: `(entity "${req.body.entity}" not found)`,
-                    expected: `${req.body.validator.mode === 'gte' ? '≥' : '='} ${req.body.validator.expected}`,
-                    durationMs: Date.now() - startedAt,
-                };
-            }
-            const { count } = await findLinkedCount(neid, {
-                direction: req.body.direction,
-                limit: 200,
-            });
-            const v = validateLinkedCount(count, req.body.validator);
-            return {
-                queryId: req.queryId,
-                queryName: req.queryName,
-                ...v,
-                durationMs: Date.now() - startedAt,
-            };
-        }
+    const result: QueryResult = {
+        queryId: req.queryId,
+        queryName,
+        question: req.question,
+        pass: error ? false : pass,
+        actual,
+        expected: expectedLabel,
+        error,
+        durationMs: durationMs || Date.now() - startedAt,
+        toolCallCount,
+        trace,
+    };
 
-        throw createError({ statusCode: 400, statusMessage: `unknown query type` });
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
+    if (req.runId) {
+        await saveTrace({
+            runId: req.runId,
             queryId: req.queryId,
-            queryName: req.queryName,
-            pass: false,
-            actual: '(error)',
-            expected: '(error)',
-            error: message,
-            durationMs: Date.now() - startedAt,
-        };
+            queryName,
+            question: req.question,
+            pass: result.pass,
+            expected: expectedLabel,
+            actual,
+            error,
+            durationMs: result.durationMs,
+            toolCallCount,
+            trace,
+        });
     }
+
+    return result;
 });

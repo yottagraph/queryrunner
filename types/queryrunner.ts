@@ -1,72 +1,94 @@
 /**
- * QueryRunner — KG query test harness types.
+ * QueryRunner — agent-answered KG query test harness types.
  *
- * A QueryDef is a reusable test definition. A QueryResult is what a
- * single execution produced. A TestRun groups N QueryResults under one
- * timestamp (i.e. "run all on 2026-06-03 03:57 UTC produced these N
- * results"). Pass rate is a function of QueryResults across runs.
+ * The execution model: a query is a plaintext, human-language QUESTION
+ * (e.g. "What is the official name of Apple?"). It is answered by an
+ * app-hosted agent that navigates the Elemental Knowledge Graph through a
+ * single MCP toolset and returns ONE value (string or number). That value is
+ * judged deterministically against the query's `expected` answer, so every
+ * query is pass/fail.
+ *
+ * A `QueryDef` is a reusable test definition. A `QueryResult` is what one
+ * execution produced (including the full agent/MCP trace for debugging). A
+ * `TestRun` groups N results under one timestamp; pass rate is a function of
+ * results across runs.
  */
 
-export type SearchValidator =
-    | { mode: 'top_name_equals'; expected: string }
-    | { mode: 'top_neid_equals'; expected: string }
-    | { mode: 'top_flavor_equals'; expected: string }
-    | { mode: 'has_match' };
-
-export type PropertyValidator =
-    | { mode: 'equals'; expected: string }
-    | { mode: 'contains'; expected: string }
-    | { mode: 'not_null' };
-
-export type LinkedCountValidator =
-    | { mode: 'gte'; expected: number }
-    | { mode: 'equals'; expected: number };
-
-export interface SearchQueryDef {
-    type: 'search';
-    query: string;
-    validator: SearchValidator;
-}
-
-export interface PropertyQueryDef {
-    type: 'property';
-    entity: string;
-    property: string;
-    validator: PropertyValidator;
-}
-
-export interface LinkedCountQueryDef {
-    type: 'linked_count';
-    entity: string;
-    direction: 'incoming' | 'outgoing';
-    validator: LinkedCountValidator;
-}
-
-export type QueryBody = SearchQueryDef | PropertyQueryDef | LinkedCountQueryDef;
+/** How the agent's single answer value is judged against the expected value. */
+export type AnswerExpectation =
+    | { kind: 'string'; value: string; match: 'exact' | 'iexact' | 'icontains' }
+    | { kind: 'number'; value: number; tolerance?: number }
+    | { kind: 'number_range'; min?: number; max?: number };
 
 export interface QueryDef {
     id: string;
-    name: string;
+    /** Optional label; the dashboard falls back to the question when empty. */
+    name?: string;
+    /** The plaintext, human-language question the agent must answer. */
+    question: string;
+    /** Deterministic expectation the agent's answer is judged against. */
+    expected: AnswerExpectation;
     description?: string;
-    body: QueryBody;
     createdAt: number;
     updatedAt: number;
+}
+
+/** One MCP tool call the agent made while answering — request + response. */
+export interface ToolCallTrace {
+    index: number;
+    name: string;
+    args: Record<string, unknown>;
+    /** The value the MCP tool returned (present once the response arrives). */
+    response?: unknown;
+}
+
+/**
+ * Everything we captured about a single agent run — the navigation record.
+ * Returned inline on the live result and persisted in full to Postgres (when
+ * configured) so a run's behaviour can be inspected and optimised later.
+ */
+export interface QueryTrace {
+    question: string;
+    model: string;
+    hosting: string;
+    sessionId: string | null;
+    /** Every MCP tool call, in order, with args and responses. */
+    toolCalls: ToolCallTrace[];
+    /** The agent's raw final text (the message that should contain the JSON). */
+    finalText: string;
+    /** The JSON object the agent emitted (parsed), or null if none parsed. */
+    rawAnswerJson: unknown | null;
+    /** The single value extracted from `answer`. */
+    parsedAnswer: string | number | null;
+    /** The agent's stated reasoning, if it provided any. */
+    reasoning?: string;
+    /** Error from the agent-call path (transport / config / parse). */
+    agentError?: string;
 }
 
 export interface QueryResult {
     queryId: string;
     queryName: string;
+    question: string;
     pass: boolean;
+    /** String rendering of the agent's answer (for tables). */
     actual: string;
+    /** Human description of what was expected. */
     expected: string;
+    /** Set for transport / config / agent errors (distinct from a clean fail). */
     error?: string;
     durationMs: number;
+    /** Number of MCP tool calls the agent made (kept even when trace is stripped). */
+    toolCallCount: number;
+    /** Full trace — returned inline; stripped before persisting to prefs. */
+    trace?: QueryTrace;
 }
 
 export interface TestRun {
     id: string;
     startedAt: number;
     finishedAt: number;
+    /** Per-query results; persisted WITHOUT `trace` to stay within prefs budget. */
     results: QueryResult[];
     passCount: number;
     failCount: number;
@@ -75,7 +97,27 @@ export interface TestRun {
 
 /** Wire format for POST /api/queryrunner/execute */
 export interface ExecuteRequest {
+    /** Groups the persisted trace with the rest of a run. */
+    runId?: string;
     queryId: string;
     queryName: string;
-    body: QueryBody;
+    question: string;
+    expected: AnswerExpectation;
+}
+
+/** Human-readable description of an expectation, for tables/labels. */
+export function describeExpectation(exp: AnswerExpectation): string {
+    switch (exp.kind) {
+        case 'string':
+            if (exp.match === 'icontains') return `contains "${exp.value}"`;
+            if (exp.match === 'iexact') return `= "${exp.value}" (any case)`;
+            return `= "${exp.value}"`;
+        case 'number':
+            return exp.tolerance ? `${exp.value} ± ${exp.tolerance}` : `= ${exp.value}`;
+        case 'number_range': {
+            const lo = exp.min ?? '−∞';
+            const hi = exp.max ?? '∞';
+            return `between ${lo} and ${hi}`;
+        }
+    }
 }
