@@ -2,6 +2,7 @@
     <v-app class="theme-brand">
         <template v-if="showAppFramework">
             <AppHeader />
+            <QueryRunnerNav />
 
             <v-main class="fill-height">
                 <ServerStatus />
