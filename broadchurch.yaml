@@ -34,6 +34,12 @@ auth:
 aether:
   data_mode: "api-mcp"
 
+# Custom MCP servers deployed from mcp-servers/ (Cloud Run, IAM-auth).
+# The query_runner_agent resolves elemental-query from here and mints an
+# ID token for the *.run.app audience. URL must end in /mcp (Streamable HTTP).
+mcp:
+  elemental-query: "https://mcp-elemental-query-ky57eot65a-uc.a.run.app/mcp"
+
 # Agent hosting substrate (ADR-021). `agent_engine` (legacy)
 # deploys agents to the shared Vertex Agent Engine; `gke` (BC 2.0)
 # routes through .github/workflows/deploy-agent.yml → Cloud Build →
