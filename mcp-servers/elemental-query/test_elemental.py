@@ -248,9 +248,15 @@ def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
         assert "8" in form["pids"] and "313" in form["pids"]
         return {
             "values": [
-                {"pid": 8, "value": "Apple Inc."},
-                {"pid": 8, "value": "DUPLICATE — must be ignored"},
-                {"pid": 313, "value": "123"},  # reference NEID (unpadded)
+                {
+                    "pid": 8,
+                    "value": "Apple Inc.",
+                    "efid": "efid-name-1",
+                    "attributes": {"source": "edgar"},
+                    "recorded_at": "2020-01-01T00:00:00Z",
+                },
+                {"pid": 8, "value": "DUPLICATE — must be ignored", "efid": "efid-name-2"},
+                {"pid": 313, "value": "123", "efid": "efid-country-1"},  # reference NEID
             ]
         }
 
@@ -267,6 +273,23 @@ def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
     assert out["values"]["name"] == "Apple Inc."  # first-wins dedup
     assert out["values"]["country"] == "United States"  # nindex resolved to name
     assert out["unknown_properties"] == ["bogus"]
+
+    # details carries the chosen fact's provenance (efid / attributes / pid /
+    # recorded_at), and reflects the SAME first-wins row used for the value.
+    assert out["details"]["name"] == {
+        "pid": 8,
+        "efid": "efid-name-1",
+        "attributes": {"source": "edgar"},
+        "recorded_at": "2020-01-01T00:00:00Z",
+    }
+    # reference fact: efid surfaced even though the value resolved to a name;
+    # missing attributes/recorded_at default to None (the API omits them).
+    assert out["details"]["country"]["pid"] == 313
+    assert out["details"]["country"]["efid"] == "efid-country-1"
+    assert out["details"]["country"]["attributes"] is None
+    # unknown property is never requested → absent from values and details.
+    assert "bogus" not in out["details"]
+    assert "bogus" not in out["values"]
 
 
 def test_get_entity_properties_all_unknown_makes_no_http_call(monkeypatch):

@@ -138,7 +138,13 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
         properties: Property names to fetch (from the schema tools).
 
     Returns:
-        {"neid", "values": {prop: value_or_null}, "unknown_properties": [...]}
+        {"neid",
+         "values": {prop: value_or_null},
+         "details": {prop: {"pid", "efid", "attributes", "recorded_at"} | null},
+         "unknown_properties": [...]}
+        `values` holds the resolved value (references → names); `details` carries
+        the chosen fact's provenance — its property id (pid), entity-fact id
+        (efid), any fact attributes, and when it was recorded.
     """
     return elemental.get_entity_properties(neid, properties)
 

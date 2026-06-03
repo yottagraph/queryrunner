@@ -39,6 +39,9 @@ broadchurch.yaml
 agents/.venv/
 agents/*/.venv/
 mcp-servers/*/.venv/
+# Local ADK api_server/web state (sessions, artifacts) from `adk api_server`
+.adk/
+agents/*/.adk/
 __pycache__/
 *.pyc
 *.egg-info/

@@ -382,7 +382,18 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
     and resolves reference (data_nindex) values to the linked entity's
     display name so you never see a raw NEID where a name belongs.
 
-    Returns {"values": {prop: value_or_null, ...}, "unknown_properties": [...]}.
+    Returns:
+        {
+          "neid": str,
+          "values": {prop: value_or_null, ...},   # resolved (refs → names)
+          "details": {prop: {                      # provenance of the chosen fact
+              "pid": int,                           # the property id
+              "efid": str,                          # the entity-fact id of this value
+              "attributes": <any|null>,             # fact qualifiers, when present
+              "recorded_at": str|null,              # when the fact was recorded
+          } | null, ...},
+          "unknown_properties": [...],
+        }
     """
     try:
         neid = pad_neid(neid)
@@ -397,8 +408,14 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
                 unknown.append(nm)
 
         values: dict[str, Any] = {nm: None for nm, _, _ in wanted}
+        details: dict[str, Any] = {nm: None for nm, _, _ in wanted}
         if not wanted:
-            return {"neid": neid, "values": values, "unknown_properties": unknown}
+            return {
+                "neid": neid,
+                "values": values,
+                "details": details,
+                "unknown_properties": unknown,
+            }
 
         pid_array = "[" + ",".join(str(pid) for _, pid, _ in wanted) + "]"
         res = _post_form(
@@ -406,20 +423,28 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
             {"eids": json.dumps([neid]), "pids": pid_array},
         )
 
-        # first-wins dedup per pid
-        by_pid: dict[str, Any] = {}
+        # first-wins dedup per pid — keep the whole fact row so we can surface
+        # its provenance (efid / attributes / recorded_at), not just the value.
+        by_pid: dict[str, dict] = {}
         for v in (res or {}).get("values", []) or []:
             pid = str(v.get("pid"))
             if pid in by_pid or v.get("value") is None:
                 continue
-            by_pid[pid] = v.get("value")
+            by_pid[pid] = v
 
         ref_neids: list[str] = []
         pending_refs: list[tuple[str, str]] = []  # (prop_name, padded_neid)
         for nm, pid, vtype in wanted:
-            raw = by_pid.get(str(pid))
-            if raw is None:
+            row = by_pid.get(str(pid))
+            if row is None:
                 continue
+            details[nm] = {
+                "pid": row.get("pid"),
+                "efid": row.get("efid"),
+                "attributes": row.get("attributes"),
+                "recorded_at": row.get("recorded_at"),
+            }
+            raw = row.get("value")
             if _is_reference(vtype):
                 padded = pad_neid(raw)
                 pending_refs.append((nm, padded))
@@ -432,7 +457,12 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
             for nm, padded in pending_refs:
                 values[nm] = name_map.get(padded, padded)
 
-        return {"neid": neid, "values": values, "unknown_properties": unknown}
+        return {
+            "neid": neid,
+            "values": values,
+            "details": details,
+            "unknown_properties": unknown,
+        }
     except Exception as e:
         return {"error": f"Failed to fetch properties for {neid}: {e}"}
 
