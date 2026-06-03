@@ -91,7 +91,7 @@
                             <div class="kv-label">params (Agent → MCP)</div>
                             <pre class="json">{{ pretty(tc.args) }}</pre>
                             <div class="kv-label">response (MCP → Agent)</div>
-                            <pre class="json">{{ pretty(tc.response) }}</pre>
+                            <pre class="json">{{ pretty(displayResponse(tc.response)) }}</pre>
                         </div>
                     </li>
                 </ol>
@@ -202,6 +202,20 @@
     function formatAnswer(v: string | number | null): string {
         if (v === null || v === undefined) return '(no answer)';
         return String(v);
+    }
+
+    /**
+     * MCP tool responses carry both `structuredContent` (the real object) and a
+     * `content` array that's just a stringified duplicate of it. Drop `content`
+     * for display — the capture keeps the full payload.
+     */
+    function displayResponse(resp: unknown): unknown {
+        if (resp && typeof resp === 'object' && !Array.isArray(resp) && 'content' in resp) {
+            const rest = { ...(resp as Record<string, unknown>) };
+            delete rest.content;
+            return rest;
+        }
+        return resp;
     }
 
     function pretty(v: unknown): string {
