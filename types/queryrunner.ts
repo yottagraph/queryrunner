@@ -40,6 +40,15 @@ export interface ToolCallTrace {
     args: Record<string, unknown>;
     /** The value the MCP tool returned (present once the response arrives). */
     response?: unknown;
+    /**
+     * Timing, relative to the first observed tool call (ms). Absent on traces
+     * captured before timing was recorded, so always treat as optional.
+     */
+    startOffsetMs?: number;
+    /** Offset (ms from first call) when the tool response was observed. */
+    endOffsetMs?: number;
+    /** Round-trip duration of this tool call in ms (`endOffsetMs - startOffsetMs`). */
+    durationMs?: number;
 }
 
 /**

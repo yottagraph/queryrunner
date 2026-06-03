@@ -88,11 +88,29 @@ describe('applyEvent — tool-call ↔ response pairing', () => {
         applyEvent(call('resolve_entity', { name: 'Apple' }), acc);
         applyEvent(resp('resolve_entity', { neid: '001' }), acc);
         expect(acc.toolCalls).toHaveLength(1);
-        expect(acc.toolCalls[0]).toEqual({
+        expect(acc.toolCalls[0]).toMatchObject({
             name: 'resolve_entity',
             args: { name: 'Apple' },
             response: { neid: '001' },
         });
+    });
+
+    it('stamps call/response times from the server-observed clock', () => {
+        const acc = mk();
+        applyEvent(call('resolve_entity', { name: 'Apple' }), acc, 1000);
+        applyEvent(resp('resolve_entity', { neid: '001' }), acc, 1250);
+        expect(acc.toolCalls[0].calledAt).toBe(1000);
+        expect(acc.toolCalls[0].respondedAt).toBe(1250);
+    });
+
+    it('prefers the ADK event timestamp (epoch seconds) over the observed clock', () => {
+        const acc = mk();
+        const callEvt = { ...call('health', {}), timestamp: 100 };
+        const respEvt = { ...resp('health', { ok: true }), timestamp: 100.5 };
+        applyEvent(callEvt, acc, 9_999_999);
+        applyEvent(respEvt, acc, 9_999_999);
+        expect(acc.toolCalls[0].calledAt).toBe(100_000);
+        expect(acc.toolCalls[0].respondedAt).toBe(100_500);
     });
 
     it('pairs distinct tools unambiguously regardless of interleaving', () => {

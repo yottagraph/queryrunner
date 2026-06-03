@@ -14,6 +14,9 @@
         },
         "vuetify-mcp": {
             "url": "https://mcp.vuetifyjs.com/mcp"
+        },
+        "elemental-query": {
+            "url": "https://broadchurch-portal-194773164895.us-central1.run.app/api/mcp/org_25TV4kqgW7ccBh4F/elemental-query/mcp"
         }
     }
 }

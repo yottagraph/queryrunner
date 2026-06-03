@@ -102,11 +102,25 @@ export async function runQueryAgent(question: string, model: string): Promise<Ru
         const agentId = await resolveQueryAgentId();
         const res = await callAgent({ agentId, message: question, userId: 'queryrunner' });
 
+        // Anchor offsets to the first observed call so the first bar starts at
+        // t=0 (excludes agent authorize/session setup, which isn't tool work).
+        const callTimes = res.toolCalls
+            .map((tc) => tc.calledAt)
+            .filter((t): t is number => typeof t === 'number');
+        const t0 = callTimes.length ? Math.min(...callTimes) : null;
         const toolCalls: ToolCallTrace[] = res.toolCalls.map((tc, i) => ({
             index: i,
             name: tc.name,
             args: tc.args,
             response: tc.response,
+            startOffsetMs:
+                t0 !== null && typeof tc.calledAt === 'number' ? tc.calledAt - t0 : undefined,
+            endOffsetMs:
+                t0 !== null && typeof tc.respondedAt === 'number' ? tc.respondedAt - t0 : undefined,
+            durationMs:
+                typeof tc.calledAt === 'number' && typeof tc.respondedAt === 'number'
+                    ? tc.respondedAt - tc.calledAt
+                    : undefined,
         }));
 
         const parsedJson = extractFencedJson(res.text);

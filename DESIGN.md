@@ -105,8 +105,14 @@ the over-time pass-rate metric keeps working everywhere.
 - `pages/runs.vue` / `pages/runs/[id].vue` — run history; the detail page has
   expandable per-query rows that load the full MCP navigation trace on demand.
 - `components/QueryEditDialog.vue` — question + expected-answer editor.
-- `components/QueryTraceViewer.vue` — renders a trace: ordered MCP calls
-  (args + responses), the parsed answer, reasoning, and raw agent output.
+- `components/QueryTraceViewer.vue` — renders a trace as an Agent ⟷ MCP
+  **call flow**: each tool call shows its exact args + response (expandable)
+  plus per-call timing — a waterfall bar (offset + duration) so reasoning gaps
+  between calls are visible. Also shows the parsed answer, reasoning, and raw
+  agent output. Per-call timing comes from each ADK `function_call` /
+  `function_response` event (the event's own `timestamp`, falling back to the
+  server-observed time); offsets are anchored to the first tool call. Traces
+  captured before timing existed render the flow without bars.
 - `components/QueryResultChip.vue`, `QueryRunnerNav.vue`, `PassRateSparkline.vue`.
 
 ## Expected-answer judging
