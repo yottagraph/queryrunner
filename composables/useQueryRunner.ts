@@ -1,18 +1,24 @@
 /**
  * QueryRunner state + actions.
  *
- * Holds the query catalog and run history in user prefs (cross-app
- * global feature prefs — these are small JSON docs, well within the
- * KB-scale budget). Exposes:
+ * A query is a plaintext question answered by the app-hosted
+ * `query_runner_agent`. The catalog and a lightweight run history live in
+ * user prefs (small JSON docs); the FULL per-query agent/MCP trace is large
+ * and is persisted separately to Postgres by the execute route (and returned
+ * inline for the current session). Before writing a run to prefs we STRIP the
+ * `trace` from each result so the prefs doc stays within budget.
  *
- *  - reactive `queries` / `runs` arrays
- *  - CRUD on queries
- *  - `runQuery(query)` — executes one, returns the QueryResult
- *  - `runAll()` — executes every query in parallel and records a TestRun
- *
- * Runs are capped to MAX_RUNS so we never approach the prefs doc limit.
+ * Exposes reactive `queries` / `runs` / `latestRun`, CRUD on queries,
+ * `runQuery` (one), and `runAll` (record a TestRun). Runs are capped to
+ * MAX_RUNS.
  */
-import type { ExecuteRequest, QueryDef, QueryResult, TestRun } from '~/types/queryrunner';
+import type {
+    AnswerExpectation,
+    ExecuteRequest,
+    QueryDef,
+    QueryResult,
+    TestRun,
+} from '~/types/queryrunner';
 
 const MAX_RUNS = 50;
 
@@ -31,59 +37,52 @@ function blankRuns(): TestRun[] {
 /** Default catalog seeded the first time a user opens the app. */
 function seedQueries(): QueryDef[] {
     const now = Date.now();
+    const mk = (
+        name: string,
+        question: string,
+        expected: AnswerExpectation,
+        description?: string
+    ): QueryDef => ({
+        id: uid(),
+        name,
+        question,
+        expected,
+        description,
+        createdAt: now,
+        updatedAt: now,
+    });
     return [
-        {
-            id: uid(),
-            name: 'Search: Microsoft → Microsoft Corporation',
-            description: 'Top result for the string "Microsoft" should be the corporation node.',
-            body: {
-                type: 'search',
-                query: 'Microsoft',
-                validator: { mode: 'top_name_equals', expected: 'Microsoft Corporation' },
-            },
-            createdAt: now,
-            updatedAt: now,
-        },
-        {
-            id: uid(),
-            name: 'Search: Apple has any match',
-            body: {
-                type: 'search',
-                query: 'Apple Inc',
-                validator: { mode: 'has_match' },
-            },
-            createdAt: now,
-            updatedAt: now,
-        },
-        {
-            id: uid(),
-            name: 'Property: Microsoft name contains "Microsoft"',
-            description: 'Resolve "Microsoft" and check the name property contains the string.',
-            body: {
-                type: 'property',
-                entity: 'Microsoft',
-                property: 'name',
-                validator: { mode: 'contains', expected: 'Microsoft' },
-            },
-            createdAt: now,
-            updatedAt: now,
-        },
-        {
-            id: uid(),
-            name: 'Linked-count: JPMorgan Chase incoming ≥ 1',
-            body: {
-                type: 'linked_count',
-                entity: 'JPMorgan Chase',
-                direction: 'incoming',
-                validator: { mode: 'gte', expected: 1 },
-            },
-            createdAt: now,
-            updatedAt: now,
-        },
+        mk(
+            'Apple — official name',
+            'What is the official name of Apple?',
+            { kind: 'string', value: 'Apple', match: 'icontains' },
+            'Agent should resolve "Apple" and report its canonical name.'
+        ),
+        mk('Microsoft — country', 'What country is Microsoft Corporation based in?', {
+            kind: 'string',
+            value: 'United States',
+            match: 'icontains',
+        }),
+        mk('JPMorgan — linked entity count', 'How many entities are linked to JPMorgan Chase?', {
+            kind: 'number_range',
+            min: 1,
+        }),
+        mk('Apple — ticker symbol', 'What is the stock ticker symbol of Apple Inc.?', {
+            kind: 'string',
+            value: 'AAPL',
+            match: 'iexact',
+        }),
     ];
 }
 
 let seeded = false;
+
+/** Drop the heavy `trace` from a result before it goes into prefs. */
+function stripTrace(r: QueryResult): QueryResult {
+    const { trace: _trace, ...rest } = r;
+    void _trace;
+    return rest;
+}
 
 export function useQueryRunner() {
     const catalog = useGlobalFeaturePrefs('queryrunner-catalog', {
@@ -93,9 +92,6 @@ export function useQueryRunner() {
         runs: blankRuns(),
     });
 
-    // Seed the catalog with starter queries the first time it's empty.
-    // (Hydration runs async; this fires once `useGlobalFeaturePrefs` has
-    // observed the real doc — checking after a nextTick is enough.)
     if (!seeded) {
         seeded = true;
         nextTick(() => {
@@ -122,36 +118,49 @@ export function useQueryRunner() {
         catalog.queries = catalog.queries.filter((q) => q.id !== id);
     }
 
-    async function runQuery(query: QueryDef): Promise<QueryResult> {
+    /**
+     * Execute one query. `runId` groups its persisted trace with a run; when
+     * omitted a one-off id is generated so a single run still persists.
+     * Returns the result WITH its inline trace (the caller may keep it in
+     * session memory; it is not written to prefs).
+     */
+    async function runQuery(query: QueryDef, runId?: string): Promise<QueryResult> {
         const startedAt = Date.now();
         const req: ExecuteRequest = {
+            runId: runId ?? `single-${uid()}`,
             queryId: query.id,
-            queryName: query.name,
-            body: query.body,
+            queryName: query.name || query.question,
+            question: query.question,
+            expected: query.expected,
         };
         try {
             return await $fetch<QueryResult>('/api/queryrunner/execute', {
                 method: 'POST',
                 body: req,
+                // Agent runs can be slow (multiple tool calls + LLM hops).
+                timeout: 5 * 60 * 1000,
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return {
                 queryId: query.id,
-                queryName: query.name,
+                queryName: query.name || query.question,
+                question: query.question,
                 pass: false,
                 actual: '(transport error)',
                 expected: '(transport error)',
                 error: message,
                 durationMs: Date.now() - startedAt,
+                toolCallCount: 0,
             };
         }
     }
 
     async function runAll(): Promise<TestRun> {
         const queries = catalog.queries;
+        const runId = uid();
         const startedAt = Date.now();
-        const results = await Promise.all(queries.map(runQuery));
+        const results = await Promise.all(queries.map((q) => runQuery(q, runId)));
         const finishedAt = Date.now();
         let passCount = 0;
         let failCount = 0;
@@ -162,10 +171,10 @@ export function useQueryRunner() {
             else failCount += 1;
         }
         const run: TestRun = {
-            id: uid(),
+            id: runId,
             startedAt,
             finishedAt,
-            results,
+            results: results.map(stripTrace),
             passCount,
             failCount,
             errorCount,
