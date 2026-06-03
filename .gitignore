@@ -35,6 +35,7 @@ broadchurch.yaml
 .aether-dev-prefs/
 
 # Python virtual environments (for agents and MCP servers)
+.venv/
 agents/.venv/
 agents/*/.venv/
 mcp-servers/*/.venv/

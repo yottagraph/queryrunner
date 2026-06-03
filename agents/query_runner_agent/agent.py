@@ -27,8 +27,11 @@ URL + auth resolution for the MCP server:
   2. broadchurch.yaml `mcp.elemental-query`.
   Custom MCP servers are reached at their direct Cloud Run URL with IAM auth
   (the platform gateway only proxies the four Lovelace platform servers), so
-  for a *.run.app URL we mint a Google ID token for that audience and send it
-  as a Bearer header. Localhost URLs are called without auth.
+  for a *.run.app URL we attach a Google ID token for that audience as a
+  Bearer header — minted PER REQUEST and cached until just before expiry
+  (see `_GoogleIdTokenAuth`), so a long-lived deployment never sends a stale
+  token. The deployment must also run as a service account that holds
+  `roles/run.invoker` on the MCP service. Localhost URLs are called without auth.
 
 Local testing:
     export QUERY_MCP_URL=http://127.0.0.1:8080/mcp   # local elemental-query
@@ -38,11 +41,16 @@ Local testing:
     cd agents && adk web
 """
 
+import base64
+import json
 import logging
 import os
+import threading
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 import yaml
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset
@@ -74,24 +82,76 @@ def _resolve_mcp_url() -> str:
     return ""
 
 
-def _auth_headers(url: str) -> dict[str, str]:
-    """Bearer ID token for a Cloud Run MCP URL; empty for localhost/dev."""
+def _needs_auth(url: str) -> bool:
+    """Cloud Run (*.run.app) requires an IAM ID token; localhost/dev does not."""
+    host = urlsplit(url).hostname or ""
+    if host in ("localhost", "127.0.0.1"):
+        return False
+    return host.endswith(".run.app")
+
+
+def _audience(url: str) -> str:
     parts = urlsplit(url)
-    host = parts.hostname or ""
-    if host in ("localhost", "127.0.0.1") or not host.endswith(".run.app"):
-        return {}
-    audience = f"{parts.scheme}://{parts.netloc}"
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _jwt_exp(token: str) -> float | None:
+    """Best-effort read of a JWT's `exp` claim (no signature verification)."""
     try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+        return float(exp) if exp else None
+    except Exception:
+        return None
+
+
+class _GoogleIdTokenAuth(httpx.Auth):
+    """Attach a fresh Google-signed ID token (scoped to `audience`) to every request.
+
+    The token is minted from the runtime's ambient credentials (the Agent
+    Engine / Cloud Run service account, via the metadata server) and cached
+    only until shortly before it expires. Minting per request — instead of
+    once at import — is what keeps a long-lived agent from sending a stale
+    token, the bug that left the deployed agent with zero MCP tools (401s).
+    """
+
+    _REFRESH_SKEW = 300  # refresh this many seconds before expiry
+
+    def __init__(self, audience: str) -> None:
+        self._audience = audience
+        self._lock = threading.Lock()
+        self._token: str | None = None
+        self._exp = 0.0
+
+    def _fetch(self) -> str | None:
         import google.auth.transport.requests
         import google.oauth2.id_token
 
-        token = google.oauth2.id_token.fetch_id_token(
-            google.auth.transport.requests.Request(), audience
-        )
-        return {"Authorization": f"Bearer {token}"}
-    except Exception as exc:  # pragma: no cover - depends on runtime identity
-        logger.error("Failed to mint ID token for MCP audience %s: %s", audience, exc)
-        return {}
+        try:
+            return google.oauth2.id_token.fetch_id_token(
+                google.auth.transport.requests.Request(), self._audience
+            )
+        except Exception as exc:  # pragma: no cover - depends on runtime identity
+            logger.error("Failed to mint ID token for MCP audience %s: %s", self._audience, exc)
+            return None
+
+    def _current(self) -> str | None:
+        now = time.time()
+        with self._lock:
+            if self._token and now < self._exp - self._REFRESH_SKEW:
+                return self._token
+            token = self._fetch()
+            if token:
+                self._token = token
+                self._exp = _jwt_exp(token) or (now + 1800)
+            return token
+
+    def auth_flow(self, request):  # httpx drives both sync + async via this
+        token = self._current()
+        if token:
+            request.headers["Authorization"] = f"Bearer {token}"
+        yield request
 
 
 _MCP_URL = _resolve_mcp_url()
@@ -101,10 +161,33 @@ if not _MCP_URL:
         "to broadchurch.yaml (deploy the elemental-query MCP server first with /deploy_mcp)."
     )
 
+
+def _mcp_http_client_factory(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """Build the httpx client MCP uses for the connection. For a Cloud Run URL
+    we install the auto-refreshing ID-token auth so every request (including
+    re-connects long after startup) carries a valid Bearer token; localhost
+    gets a plain client."""
+    if auth is None and _needs_auth(_MCP_URL):
+        auth = _GoogleIdTokenAuth(_audience(_MCP_URL))
+    kwargs: dict = {
+        "follow_redirects": True,
+        "timeout": timeout or httpx.Timeout(30.0, read=300.0),
+    }
+    if headers:
+        kwargs["headers"] = headers
+    if auth is not None:
+        kwargs["auth"] = auth
+    return httpx.AsyncClient(**kwargs)
+
+
 _elemental_query = McpToolset(
     connection_params=StreamableHTTPConnectionParams(
         url=_MCP_URL,
-        headers=_auth_headers(_MCP_URL),
+        httpx_client_factory=_mcp_http_client_factory,
     )
 )
 

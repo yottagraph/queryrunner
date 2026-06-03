@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,24 +84,41 @@ def test_missing_mcp_url_raises(monkeypatch):
     _import_agent("http://127.0.0.1:9/mcp")
 
 
-def test_auth_headers_localhost_has_no_auth():
+def test_needs_auth_only_for_cloudrun():
     agent = _import_agent("http://127.0.0.1:9/mcp")
-    assert agent._auth_headers("http://127.0.0.1:8080/mcp") == {}
-    assert agent._auth_headers("http://localhost:8080/mcp") == {}
-
-
-def test_auth_headers_non_cloudrun_https_has_no_auth():
-    agent = _import_agent("http://127.0.0.1:9/mcp")
+    assert agent._needs_auth("http://127.0.0.1:8080/mcp") is False
+    assert agent._needs_auth("http://localhost:8080/mcp") is False
     # Only *.run.app gets an IAM bearer; other hosts are left unauthenticated.
-    assert agent._auth_headers("https://mcp.internal.example.com/mcp") == {}
+    assert agent._needs_auth("https://mcp.internal.example.com/mcp") is False
+    assert agent._needs_auth("https://elemental-query-abc.us-central1.run.app/mcp") is True
 
 
-def test_auth_headers_cloudrun_url_attempts_token():
+def test_audience_is_scheme_and_host():
     agent = _import_agent("http://127.0.0.1:9/mcp")
-    # Without GCP identity the mint fails and degrades to {} (logged); the
-    # contract we assert is "returns a dict, never raises".
-    out = agent._auth_headers("https://elemental-query-abc.us-central1.run.app/mcp")
-    assert isinstance(out, dict)
+    assert (
+        agent._audience("https://elemental-query-abc.us-central1.run.app/mcp")
+        == "https://elemental-query-abc.us-central1.run.app"
+    )
+
+
+def test_localhost_factory_installs_no_auth():
+    # Localhost MCP → the client factory must not attach Google ID-token auth.
+    agent = _import_agent("http://127.0.0.1:9/mcp")
+    client = agent._mcp_http_client_factory()
+    try:
+        assert client.auth is None
+    finally:
+        asyncio.run(client.aclose())
+
+
+def test_id_token_auth_degrades_without_identity():
+    # Without a GCP identity the mint fails and _current() returns None
+    # (logged) — auth_flow must still yield a usable request, never raise.
+    agent = _import_agent("http://127.0.0.1:9/mcp")
+    auth = agent._GoogleIdTokenAuth("https://x.us-central1.run.app")
+    req = httpx.Request("POST", "https://x.us-central1.run.app/mcp")
+    list(auth.auth_flow(req))  # must not raise
+    assert agent._jwt_exp("not.a.jwt") is None
 
 
 def test_model_and_agent_identity(monkeypatch):
