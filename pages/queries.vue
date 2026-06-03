@@ -27,10 +27,11 @@
         <div class="content">
             <v-card v-if="queries.length === 0" class="empty-card">
                 <v-card-text class="text-center pa-8">
-                    <v-icon size="x-large" class="mb-2">mdi-test-tube</v-icon>
+                    <v-icon size="x-large" class="mb-2">mdi-comment-question-outline</v-icon>
                     <div class="text-h6 mb-2">No queries yet</div>
                     <div class="text-body-2 mb-4">
-                        Add a query to start validating the Knowledge Graph.
+                        Add a plaintext question for the agent to answer against the Knowledge
+                        Graph.
                     </div>
                     <v-btn color="primary" prepend-icon="mdi-plus" @click="openNew">
                         Add your first query
@@ -43,10 +44,10 @@
                     <thead>
                         <tr>
                             <th>Status</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Validation</th>
-                            <th>Last actual</th>
+                            <th>Question</th>
+                            <th>Expected</th>
+                            <th>Last answer</th>
+                            <th class="text-center">MCP</th>
                             <th class="text-right">Actions</th>
                         </tr>
                     </thead>
@@ -54,33 +55,30 @@
                         <tr v-for="q in queries" :key="q.id">
                             <td>
                                 <QueryResultChip
-                                    :pass="
-                                        liveResults[q.id]?.pass ??
-                                        lastResultByQuery[q.id]?.pass ??
-                                        null
-                                    "
-                                    :error="
-                                        liveResults[q.id]?.error ?? lastResultByQuery[q.id]?.error
-                                    "
-                                    :duration-ms="
-                                        liveResults[q.id]?.durationMs ??
-                                        lastResultByQuery[q.id]?.durationMs ??
-                                        null
-                                    "
+                                    :pass="result(q.id)?.pass ?? null"
+                                    :error="result(q.id)?.error"
+                                    :duration-ms="result(q.id)?.durationMs ?? null"
                                 />
                             </td>
                             <td>
-                                <div class="q-name">{{ q.name }}</div>
-                                <div v-if="q.description" class="q-desc">{{ q.description }}</div>
+                                <div class="q-question">{{ q.question }}</div>
+                                <div v-if="q.name || q.description" class="q-desc">
+                                    {{ [q.name, q.description].filter(Boolean).join(' — ') }}
+                                </div>
                             </td>
-                            <td class="mono">{{ q.body.type }}</td>
-                            <td class="mono">{{ describeValidator(q) }}</td>
-                            <td class="mono">
-                                {{
-                                    liveResults[q.id]?.actual ??
-                                    lastResultByQuery[q.id]?.actual ??
-                                    '—'
-                                }}
+                            <td class="mono">{{ describeExpectation(q.expected) }}</td>
+                            <td class="mono answer-cell">{{ result(q.id)?.actual ?? '—' }}</td>
+                            <td class="text-center">
+                                <v-btn
+                                    v-if="liveResults[q.id]?.trace"
+                                    size="x-small"
+                                    variant="tonal"
+                                    @click="openTrace(q.id)"
+                                >
+                                    {{ liveResults[q.id]?.toolCallCount ?? 0 }}
+                                    <v-icon end size="small">mdi-magnify</v-icon>
+                                </v-btn>
+                                <span v-else class="muted">—</span>
                             </td>
                             <td class="text-right action-cell">
                                 <v-btn
@@ -122,12 +120,31 @@
             <QueryEditDialog :existing="editorTarget" @close="editorOpen = false" @save="onSave" />
         </v-dialog>
 
+        <v-dialog v-model="traceOpen" max-width="820" scrollable>
+            <v-card>
+                <v-card-title class="d-flex align-center">
+                    <span>Agent trace</span>
+                    <v-spacer />
+                    <v-btn icon variant="text" @click="traceOpen = false">
+                        <v-icon>mdi-close</v-icon>
+                    </v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text class="trace-dialog-body">
+                    <div v-if="traceTarget" class="trace-question">{{ traceTarget.question }}</div>
+                    <QueryTraceViewer :trace="traceTarget?.trace" />
+                </v-card-text>
+            </v-card>
+        </v-dialog>
+
         <v-dialog v-model="confirmOpen" max-width="420">
             <v-card>
                 <v-card-title>Delete query?</v-card-title>
                 <v-card-text>
                     <p>
-                        This removes <strong>{{ deleteTarget?.name }}</strong> from the catalog.
+                        This removes
+                        <strong>{{ deleteTarget?.name || deleteTarget?.question }}</strong>
+                        from the catalog.
                     </p>
                     <p class="text-caption">History entries that reference it are preserved.</p>
                 </v-card-text>
@@ -143,7 +160,8 @@
 
 <script setup lang="ts">
     import { computed, reactive, ref } from 'vue';
-    import type { QueryDef, QueryResult } from '~/types/queryrunner';
+    import type { AnswerExpectation, QueryDef, QueryResult } from '~/types/queryrunner';
+    import { describeExpectation } from '~/types/queryrunner';
 
     const { queries, runs, addQuery, updateQuery, deleteQuery, runQuery, runAll } =
         useQueryRunner();
@@ -156,9 +174,10 @@
     const runningOne = ref<string | null>(null);
     const runningAll = ref(false);
 
-    // queryId → most recent result observed THIS SESSION (resets on
-    // reload). Distinct from `lastResultByQuery`, which reads from the
-    // persisted run history.
+    const traceOpen = ref(false);
+    const traceTargetId = ref<string | null>(null);
+
+    // queryId → most recent result observed THIS SESSION (carries the trace).
     const liveResults = reactive<Record<string, QueryResult>>({});
 
     const lastResultByQuery = computed(() => {
@@ -171,6 +190,19 @@
         return map;
     });
 
+    function result(id: string): QueryResult | undefined {
+        return liveResults[id] ?? lastResultByQuery.value[id];
+    }
+
+    const traceTarget = computed(() =>
+        traceTargetId.value ? liveResults[traceTargetId.value] : null
+    );
+
+    function openTrace(id: string) {
+        traceTargetId.value = id;
+        traceOpen.value = true;
+    }
+
     function openNew() {
         editorTarget.value = null;
         editorOpen.value = true;
@@ -181,20 +213,17 @@
         editorOpen.value = true;
     }
 
-    function onSave(payload: { name: string; description: string; body: QueryDef['body'] }) {
+    function onSave(payload: {
+        name: string;
+        description: string;
+        question: string;
+        expected: AnswerExpectation;
+    }) {
         if (editorTarget.value) {
-            updateQuery(editorTarget.value.id, {
-                name: payload.name,
-                description: payload.description,
-                body: payload.body,
-            });
+            updateQuery(editorTarget.value.id, payload);
             notify('Query updated', 'success');
         } else {
-            addQuery({
-                name: payload.name,
-                description: payload.description,
-                body: payload.body,
-            });
+            addQuery(payload);
             notify('Query added', 'success');
         }
         editorOpen.value = false;
@@ -217,10 +246,10 @@
     async function onRunOne(q: QueryDef) {
         runningOne.value = q.id;
         try {
-            const result = await runQuery(q);
-            liveResults[q.id] = result;
-            const tone = result.error ? 'warning' : result.pass ? 'success' : 'error';
-            notify(`"${q.name}": ${result.pass ? 'pass' : 'fail'}`, tone);
+            const r = await runQuery(q);
+            liveResults[q.id] = r;
+            const tone = r.error ? 'warning' : r.pass ? 'success' : 'error';
+            notify(`"${q.name || q.question}": ${r.pass ? 'pass' : 'fail'}`, tone);
         } finally {
             runningOne.value = null;
         }
@@ -231,6 +260,8 @@
         runningAll.value = true;
         try {
             const run = await runAll();
+            // runAll strips traces from the persisted run; re-run is not needed
+            // — but we still want session traces, so reflect the run results.
             for (const r of run.results) liveResults[r.queryId] = r;
             const total = run.results.length;
             notify(
@@ -240,21 +271,6 @@
         } finally {
             runningAll.value = false;
         }
-    }
-
-    function describeValidator(q: QueryDef): string {
-        const v = q.body;
-        if (v.type === 'search') {
-            if (v.validator.mode === 'has_match') return `has match for "${v.query}"`;
-            return `${v.validator.mode.replace('top_', 'top ')} = "${v.validator.expected}"`;
-        }
-        if (v.type === 'property') {
-            const target = `${v.entity}.${v.property}`;
-            if (v.validator.mode === 'not_null') return `${target} not null`;
-            return `${target} ${v.validator.mode} "${v.validator.expected}"`;
-        }
-        const v2 = v.validator;
-        return `${v.direction} linked count ${v2.mode === 'gte' ? '≥' : '='} ${v2.expected}`;
     }
 </script>
 
@@ -270,20 +286,17 @@
         padding: 24px;
     }
 
-    .empty-card {
-        padding: 16px;
-    }
-
+    .empty-card,
     .catalog-card {
         overflow: hidden;
     }
 
-    .q-name {
+    .q-question {
         font-weight: 500;
     }
 
     .q-desc {
-        font-size: 0.82rem;
+        font-size: 0.8rem;
         color: var(--lv-silver, #94a3b8);
     }
 
@@ -292,7 +305,27 @@
         font-size: 0.85rem;
     }
 
+    .answer-cell {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .muted {
+        color: var(--lv-silver, #94a3b8);
+    }
+
     .action-cell {
         white-space: nowrap;
+    }
+
+    .trace-dialog-body {
+        max-height: 70vh;
+    }
+
+    .trace-question {
+        font-weight: 500;
+        margin-bottom: 12px;
     }
 </style>

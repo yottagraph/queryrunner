@@ -44,38 +44,80 @@
                             <span class="muted"> / </span>
                             <span class="err-cell">{{ run.errorCount }}</span>
                         </div>
-                        <div class="summary-sub">errors are transport / config failures</div>
+                        <div class="summary-sub">errors are transport / agent failures</div>
                     </v-card>
                 </div>
+
+                <v-alert
+                    v-if="traceState === 'unconfigured'"
+                    type="info"
+                    variant="tonal"
+                    density="compact"
+                    class="trace-note"
+                >
+                    Persistent trace storage isn't configured (no Postgres on this tenant). Full
+                    agent/MCP traces are kept only for the session in which a run executes.
+                    Provision Cloud SQL to retain traces across sessions.
+                </v-alert>
+                <v-alert
+                    v-else-if="traceState === 'warming-up'"
+                    type="warning"
+                    variant="tonal"
+                    density="compact"
+                    class="trace-note"
+                >
+                    Trace storage is warming up — traces may be temporarily unavailable.
+                </v-alert>
 
                 <v-card class="results-card">
                     <v-table density="comfortable">
                         <thead>
                             <tr>
+                                <th></th>
                                 <th>Status</th>
-                                <th>Query</th>
+                                <th>Question</th>
                                 <th>Expected</th>
-                                <th>Actual</th>
+                                <th>Answer</th>
+                                <th class="text-center">MCP</th>
                                 <th class="text-right">Duration</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="r in run.results" :key="r.queryId">
-                                <td>
-                                    <QueryResultChip
-                                        :pass="r.pass"
-                                        :error="r.error"
-                                        :duration-ms="r.durationMs"
-                                    />
-                                </td>
-                                <td>
-                                    <div>{{ r.queryName }}</div>
-                                    <div v-if="r.error" class="error-text">{{ r.error }}</div>
-                                </td>
-                                <td class="mono">{{ r.expected }}</td>
-                                <td class="mono">{{ r.actual }}</td>
-                                <td class="text-right mono">{{ r.durationMs }} ms</td>
-                            </tr>
+                            <template v-for="r in run.results" :key="r.queryId">
+                                <tr class="result-row" @click="toggle(r.queryId)">
+                                    <td class="expand-cell">
+                                        <v-icon size="small">{{
+                                            expanded[r.queryId]
+                                                ? 'mdi-chevron-down'
+                                                : 'mdi-chevron-right'
+                                        }}</v-icon>
+                                    </td>
+                                    <td>
+                                        <QueryResultChip
+                                            :pass="r.pass"
+                                            :error="r.error"
+                                            :duration-ms="r.durationMs"
+                                        />
+                                    </td>
+                                    <td>
+                                        <div>{{ r.question || r.queryName }}</div>
+                                        <div v-if="r.error" class="error-text">{{ r.error }}</div>
+                                    </td>
+                                    <td class="mono">{{ r.expected }}</td>
+                                    <td class="mono">{{ r.actual }}</td>
+                                    <td class="text-center mono">{{ r.toolCallCount ?? '—' }}</td>
+                                    <td class="text-right mono">{{ r.durationMs }} ms</td>
+                                </tr>
+                                <tr v-if="expanded[r.queryId]" class="trace-row">
+                                    <td colspan="7">
+                                        <QueryTraceViewer
+                                            :trace="traces[r.queryId]"
+                                            :loading="loadingTrace[r.queryId]"
+                                            hint="Traces persist only when Cloud SQL is configured for this tenant."
+                                        />
+                                    </td>
+                                </tr>
+                            </template>
                         </tbody>
                     </v-table>
                 </v-card>
@@ -85,13 +127,50 @@
 </template>
 
 <script setup lang="ts">
-    import { computed } from 'vue';
+    import { computed, reactive, ref } from 'vue';
+    import type { QueryTrace } from '~/types/queryrunner';
 
     const route = useRoute();
     const { runs } = useQueryRunner();
 
     const runId = computed(() => String(route.params.id ?? ''));
     const run = computed(() => runs.value.find((r) => r.id === runId.value) ?? null);
+
+    const expanded = reactive<Record<string, boolean>>({});
+    const traces = reactive<Record<string, QueryTrace | null>>({});
+    const loadingTrace = reactive<Record<string, boolean>>({});
+    const traceState = ref<'ready' | 'unconfigured' | 'warming-up' | null>(null);
+
+    async function fetchTraceStatus() {
+        if (traceState.value) return;
+        try {
+            const res = await $fetch<{ state: 'ready' | 'unconfigured' | 'warming-up' }>(
+                '/api/queryrunner/trace-status'
+            );
+            traceState.value = res.state;
+        } catch {
+            traceState.value = null;
+        }
+    }
+    fetchTraceStatus();
+
+    async function toggle(queryId: string) {
+        expanded[queryId] = !expanded[queryId];
+        if (!expanded[queryId]) return;
+        if (traces[queryId] !== undefined) return; // already fetched
+        loadingTrace[queryId] = true;
+        try {
+            const res = await $fetch<{ trace: { trace: QueryTrace } | null }>(
+                '/api/queryrunner/trace',
+                { params: { runId: runId.value, queryId } }
+            );
+            traces[queryId] = res.trace?.trace ?? null;
+        } catch {
+            traces[queryId] = null;
+        } finally {
+            loadingTrace[queryId] = false;
+        }
+    }
 
     const passRate = computed(() => {
         if (!run.value) return '—';
@@ -159,8 +238,29 @@
         margin-top: 4px;
     }
 
+    .trace-note {
+        font-size: 0.85rem;
+    }
+
     .results-card {
         overflow: hidden;
+    }
+
+    .result-row {
+        cursor: pointer;
+    }
+
+    .result-row:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .expand-cell {
+        width: 32px;
+    }
+
+    .trace-row td {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 16px 20px;
     }
 
     .mono {

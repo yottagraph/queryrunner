@@ -81,9 +81,10 @@
                         <thead>
                             <tr>
                                 <th>Status</th>
-                                <th>Query</th>
+                                <th>Question</th>
                                 <th>Expected</th>
-                                <th>Actual</th>
+                                <th>Answer</th>
+                                <th class="text-center">MCP</th>
                                 <th class="text-right">Duration</th>
                             </tr>
                         </thead>
@@ -96,9 +97,10 @@
                                         :duration-ms="r.durationMs"
                                     />
                                 </td>
-                                <td>{{ r.queryName }}</td>
+                                <td>{{ r.question || r.queryName }}</td>
                                 <td class="mono">{{ r.expected }}</td>
                                 <td class="mono">{{ r.actual }}</td>
+                                <td class="text-center mono">{{ r.toolCallCount ?? '—' }}</td>
                                 <td class="text-right mono">{{ r.durationMs }} ms</td>
                             </tr>
                         </tbody>
