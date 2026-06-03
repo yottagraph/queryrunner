@@ -102,10 +102,11 @@
         return null;
     }
 
+    // The trace is plain JSON data wrapped in a Vue reactive proxy;
+    // `structuredClone` chokes on the proxy, so round-trip through JSON (which
+    // also strips reactivity, giving us a private copy to merge citations into).
     function clone<T>(v: T): T {
-        return typeof structuredClone === 'function'
-            ? structuredClone(v)
-            : JSON.parse(JSON.stringify(v));
+        return JSON.parse(JSON.stringify(v));
     }
 
     /**
