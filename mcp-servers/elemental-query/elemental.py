@@ -374,6 +374,108 @@ def _name_for_neids(neids: list[str]) -> dict[str, str]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Provenance: match a chosen fact to its source record, then render a citation.
+#
+# Two-step QS flow, mirroring moongoose's MCP provenance helper:
+#   1. POST /elemental/provenance/match — quads (efid, pid, nindex, value,
+#      recorded_at) → provenance trails (efid, record_index, atom_index).
+#   2. POST /elemental/provenance/render — trails → rendered citations
+#      (source, subject, url, supporting excerpts, …).
+# Both are form-POSTs whose body is a JSON-string field, and both return a
+# `results` list 1:1 with the input (same order).
+# ---------------------------------------------------------------------------
+
+# Above this many resolved facts in one response we skip citation rendering:
+# match+render is a per-fact round-trip to the QS and the payloads are large.
+_MAX_FACTS_FOR_CITATIONS = 10
+
+
+def _match_provenance(quads: list[dict]) -> list[dict]:
+    """Match fact quads to provenance trails. Best-effort: never raises."""
+    if not quads:
+        return []
+    try:
+        res = _post_form("elemental/provenance/match", {"quads": json.dumps(quads)})
+        return (res or {}).get("results") or []
+    except Exception:
+        return []
+
+
+def _render_citations(trails: list[dict]) -> list[dict]:
+    """Render provenance trails to citations. Best-effort: never raises."""
+    if not trails:
+        return []
+    try:
+        res = _post_form("elemental/provenance/render", {"trails": json.dumps(trails)})
+        return (res or {}).get("results") or []
+    except Exception:
+        return []
+
+
+def _attach_rendered_citations(
+    neid: str,
+    wanted: list[tuple[str, Any, str]],
+    by_pid: dict[str, dict],
+    details: dict[str, Any],
+) -> None:
+    """Attach a rendered source citation to each property's `details` entry.
+
+    Matches every chosen fact (one per property, identified by its efid) to a
+    provenance trail, then renders that trail to a citation. Mutates `details`
+    in place, adding a `citation` key only where a source was found. Entirely
+    best-effort — any failure leaves `details` untouched.
+    """
+    try:
+        nindex = int(neid)
+    except (TypeError, ValueError):
+        return
+
+    # One quad per property that has a chosen fact with an efid, tracking which
+    # property each quad belongs to so results (returned in order) map back.
+    props: list[str] = []
+    quads: list[dict] = []
+    for nm, pid, _vtype in wanted:
+        row = by_pid.get(str(pid))
+        if details.get(nm) is None or row is None or not row.get("efid"):
+            continue
+        props.append(nm)
+        quads.append(
+            {
+                "nindex": nindex,
+                "pid": row.get("pid"),
+                "value": row.get("value"),
+                "recorded_at": row.get("recorded_at"),
+                "efid": str(row.get("efid")),
+            }
+        )
+    if not quads:
+        return
+
+    trail_props: list[str] = []
+    trails: list[dict] = []
+    for prop, m in zip(props, _match_provenance(quads)):
+        if not isinstance(m, dict) or m.get("error") or not m.get("efid"):
+            continue
+        trail_props.append(prop)
+        trails.append(
+            {
+                "efid": str(m.get("efid")),
+                "record_index": m.get("record_index", 0),
+                "atom_index": m.get("atom_index", 0),
+            }
+        )
+    if not trails:
+        return
+
+    for prop, r in zip(trail_props, _render_citations(trails)):
+        if not isinstance(r, dict) or r.get("error"):
+            continue
+        citation = r.get("citation")
+        if citation and details.get(prop) is not None:
+            details[prop]["citation"] = citation
+
+
 def get_entity_properties(neid: str, properties: list[str]) -> dict:
     """Fetch named property values for one entity (by NEID).
 
@@ -391,9 +493,25 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
               "efid": str,                          # the entity-fact id of this value
               "attributes": <any|null>,             # fact qualifiers, when present
               "recorded_at": str|null,              # when the fact was recorded
+              "citation": {                         # rendered source, see below
+                  "source": str,
+                  "source_display_name": str,
+                  "subject": str,
+                  "timestamp": str,
+                  "property": str,
+                  "value": str,
+                  "url": str,
+                  "excerpts": [{"text": str, "explanation": str, ...}],
+              },                                    # present only when matched
           } | null, ...},
           "unknown_properties": [...],
         }
+
+    The `citation` key is a fully rendered source attribution (via the QS
+    provenance match + render endpoints). It is only fetched when the response
+    has fewer than 10 resolved facts (rendering is a per-fact round-trip and
+    the payloads are large), and is omitted for any fact whose source can't be
+    matched.
     """
     try:
         neid = pad_neid(neid)
@@ -456,6 +574,12 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
             name_map = _name_for_neids(ref_neids)
             for nm, padded in pending_refs:
                 values[nm] = name_map.get(padded, padded)
+
+        # Enrich with rendered source citations, but only for small responses —
+        # match+render is a per-fact QS round-trip and the payloads are large.
+        fact_count = sum(1 for d in details.values() if d)
+        if 0 < fact_count < _MAX_FACTS_FOR_CITATIONS:
+            _attach_rendered_citations(neid, wanted, by_pid, details)
 
         return {
             "neid": neid,

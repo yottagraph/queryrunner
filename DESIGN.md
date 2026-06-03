@@ -58,9 +58,20 @@ it with `@mcp.tool()`. Tools:
   properties, so the schema is exposed _navigably_ (list types → scope
   properties to a type → fuzzy-find a property) rather than dumped wholesale.
 - **Resolution / search / retrieval:** `resolve_entity`,
-  `get_entity_properties` (resolves reference values to names, dedups),
-  `find_entities` (expression language), `count_linked_entities`,
-  `get_entity_name`, `health`.
+  `get_entity_properties` (resolves reference values to names, dedups; see
+  provenance below), `find_entities` (expression language),
+  `count_linked_entities`, `get_entity_name`, `health`.
+
+`get_entity_properties` returns, alongside each `values` entry, a `details`
+entry carrying the chosen fact's provenance (`pid`, `efid`, `attributes`,
+`recorded_at`). When the response has **fewer than 10** resolved facts it also
+attaches a rendered `citation` per fact — source, subject, url, and supporting
+excerpts — by chaining the two QS provenance endpoints: `POST
+/elemental/provenance/match` (fact quads → trails) then `POST
+/elemental/provenance/render` (trails → citations), mirroring moongoose's MCP
+provenance helper. The <10 gate keeps the response small/fast, since render is
+a per-fact round-trip; enrichment is best-effort and silently omitted when a
+source can't be matched.
 
 Config comes from env (`GATEWAY_URL` + `TENANT_ORG_ID` + `QS_API_KEY`, or
 `ELEMENTAL_API_URL`) or `broadchurch.yaml`. Deploy with `/deploy_mcp`.

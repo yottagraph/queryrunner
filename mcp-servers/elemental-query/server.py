@@ -140,11 +140,15 @@ def get_entity_properties(neid: str, properties: list[str]) -> dict:
     Returns:
         {"neid",
          "values": {prop: value_or_null},
-         "details": {prop: {"pid", "efid", "attributes", "recorded_at"} | null},
+         "details": {prop: {"pid", "efid", "attributes", "recorded_at",
+                            "citation"?} | null},
          "unknown_properties": [...]}
         `values` holds the resolved value (references → names); `details` carries
         the chosen fact's provenance — its property id (pid), entity-fact id
-        (efid), any fact attributes, and when it was recorded.
+        (efid), any fact attributes, and when it was recorded. When the response
+        has fewer than 10 resolved facts, each detail also gets a rendered
+        `citation` (source, subject, url, supporting excerpts) for any fact
+        whose source could be matched.
     """
     return elemental.get_entity_properties(neid, properties)
 

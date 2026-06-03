@@ -243,22 +243,25 @@ def test_resolve_entity_error_is_captured(monkeypatch):
 
 def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
     def fake_post_form(path, form):
-        assert path == "elemental/entities/properties"
-        # pids array carries both requested known pids
-        assert "8" in form["pids"] and "313" in form["pids"]
-        return {
-            "values": [
-                {
-                    "pid": 8,
-                    "value": "Apple Inc.",
-                    "efid": "efid-name-1",
-                    "attributes": {"source": "edgar"},
-                    "recorded_at": "2020-01-01T00:00:00Z",
-                },
-                {"pid": 8, "value": "DUPLICATE — must be ignored", "efid": "efid-name-2"},
-                {"pid": 313, "value": "123", "efid": "efid-country-1"},  # reference NEID
-            ]
-        }
+        if path == "elemental/entities/properties":
+            # pids array carries both requested known pids
+            assert "8" in form["pids"] and "313" in form["pids"]
+            return {
+                "values": [
+                    {
+                        "pid": 8,
+                        "value": "Apple Inc.",
+                        "efid": "efid-name-1",
+                        "attributes": {"source": "edgar"},
+                        "recorded_at": "2020-01-01T00:00:00Z",
+                    },
+                    {"pid": 8, "value": "DUPLICATE — must be ignored", "efid": "efid-name-2"},
+                    {"pid": 313, "value": "123", "efid": "efid-country-1"},  # reference NEID
+                ]
+            }
+        # provenance match/render — return nothing so this test stays focused on
+        # dedup + reference resolution (citations have their own test).
+        return {}
 
     def fake_post_json(path, body):
         assert path == "entities/names"
@@ -290,6 +293,103 @@ def test_get_entity_properties_dedup_and_reference_resolution(monkeypatch):
     # unknown property is never requested → absent from values and details.
     assert "bogus" not in out["details"]
     assert "bogus" not in out["values"]
+
+
+def test_get_entity_properties_attaches_rendered_citations(monkeypatch):
+    """Small responses (<10 facts) get a rendered source citation per fact via
+    the provenance match → render endpoints."""
+    captured: dict[str, dict] = {}
+
+    def fake_post_form(path, form):
+        if path == "elemental/entities/properties":
+            return {
+                "values": [
+                    {
+                        "pid": 8,
+                        "value": "Apple Inc.",
+                        "efid": "555",
+                        "recorded_at": "2020-01-01T00:00:00Z",
+                    },
+                    {"pid": 42, "value": "394328000000", "efid": "777"},
+                ]
+            }
+        if path == "elemental/provenance/match":
+            captured["match"] = json.loads(form["quads"])
+            # 1:1 with input quads, same order: name matches, revenue does not.
+            return {
+                "results": [
+                    {"efid": "555", "record_index": 1, "atom_index": 2},
+                    {"error": "no matching quad"},
+                ]
+            }
+        if path == "elemental/provenance/render":
+            captured["render"] = json.loads(form["trails"])
+            return {
+                "results": [
+                    {
+                        "citation": {
+                            "source": "edgar",
+                            "subject": "Apple Inc.",
+                            "property": "name",
+                            "value": "Apple Inc.",
+                            "url": "https://sec.gov/...",
+                            "excerpts": [{"text": "Apple Inc. is a ..."}],
+                        }
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected path {path}")
+
+    monkeypatch.setattr(elemental, "_post_form", fake_post_form)
+    monkeypatch.setattr(elemental, "_post_json", lambda p, b: {"results": {}})
+
+    out = elemental.get_entity_properties("999", ["name", "revenue"])
+
+    # The match quad carried the entity nindex (int of the NEID) + the fact's
+    # efid as a string, mirroring moongoose's buildMatchQuads.
+    name_quad = next(q for q in captured["match"] if q["pid"] == 8)
+    assert name_quad["nindex"] == 999
+    assert name_quad["efid"] == "555"
+    assert name_quad["value"] == "Apple Inc."
+
+    # Only the matched fact produced a render trail.
+    assert captured["render"] == [{"efid": "555", "record_index": 1, "atom_index": 2}]
+
+    # The rendered citation is attached to the matched property's details…
+    assert out["details"]["name"]["citation"]["source"] == "edgar"
+    assert out["details"]["name"]["citation"]["url"] == "https://sec.gov/..."
+    # …and absent on the property whose source didn't match.
+    assert "citation" not in out["details"]["revenue"]
+
+
+def test_get_entity_properties_skips_citations_for_large_responses(monkeypatch):
+    """With >=10 resolved facts, the provenance endpoints are never called."""
+
+    def fake_post_form(path, form):
+        if path == "elemental/entities/properties":
+            return {
+                "values": [
+                    {"pid": 8, "value": f"v{i}", "efid": str(1000 + i)} for i in range(10)
+                ]
+            }
+        raise AssertionError(f"provenance must be skipped, got {path}")
+
+    # Schema with 10 distinct fetchable string properties.
+    schema = {
+        "flavors": SCHEMA["flavors"],
+        "properties": [
+            {"name": f"p{i}", "value_type": "data_string", "pid": 8, "domain_findexes": []}
+            for i in range(10)
+        ],
+    }
+    monkeypatch.setattr(elemental, "_raw_schema", lambda: schema)
+    monkeypatch.setattr(elemental, "_post_form", fake_post_form)
+    monkeypatch.setattr(elemental, "_post_json", lambda p, b: {"results": {}})
+
+    out = elemental.get_entity_properties("1", [f"p{i}" for i in range(10)])
+    # First-wins dedup keeps a single fact (all rows share pid 8) → details has
+    # one populated entry, but the call must still not hit provenance.
+    assert any(d for d in out["details"].values())
 
 
 def test_get_entity_properties_all_unknown_makes_no_http_call(monkeypatch):
