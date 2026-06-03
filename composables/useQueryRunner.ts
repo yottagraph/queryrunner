@@ -94,11 +94,22 @@ export function useQueryRunner() {
 
     if (!seeded) {
         seeded = true;
-        nextTick(() => {
-            if (catalog.queries.length === 0) {
-                catalog.queries = seedQueries();
-            }
-        });
+        // Seed AFTER prefs hydration, never during it. Seeding in the load
+        // window mutates the reactive root before the disk read lands, so the
+        // post-read merge clobbers the seed (the "flash then empty" bug) and
+        // the seed never persists (the write path is gated while !hydrated).
+        const { hydrated } = usePrefsStatus();
+        const stop = watch(
+            hydrated,
+            (isHydrated) => {
+                if (!isHydrated) return;
+                if (catalog.queries.length === 0) {
+                    catalog.queries = seedQueries();
+                }
+                stop();
+            },
+            { immediate: true }
+        );
     }
 
     function addQuery(input: Omit<QueryDef, 'id' | 'createdAt' | 'updatedAt'>): QueryDef {
