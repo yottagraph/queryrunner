@@ -221,8 +221,9 @@
     function pretty(v: unknown): string {
         if (v === undefined) return '(no response captured)';
         try {
-            const s = JSON.stringify(v, null, 2);
-            return s.length > 8000 ? s.slice(0, 8000) + '\n… (truncated)' : s;
+            // Intentionally NOT truncated — the call-flow detail must show the
+            // full MCP response (args/response) for debugging.
+            return JSON.stringify(v, null, 2);
         } catch {
             return String(v);
         }

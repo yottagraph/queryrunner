@@ -64,14 +64,21 @@ it with `@mcp.tool()`. Tools:
 
 `get_entity_properties` returns, alongside each `values` entry, a `details`
 entry carrying the chosen fact's provenance (`pid`, `efid`, `attributes`,
-`recorded_at`). When the response has **fewer than 10** resolved facts it also
-attaches a rendered `citation` per fact — source, subject, url, and supporting
-excerpts — by chaining the two QS provenance endpoints: `POST
-/elemental/provenance/match` (fact quads → trails) then `POST
-/elemental/provenance/render` (trails → citations), mirroring moongoose's MCP
-provenance helper. The <10 gate keeps the response small/fast, since render is
-a per-fact round-trip; enrichment is best-effort and silently omitted when a
-source can't be matched.
+`recorded_at`). It does **not** fetch source citations — that's slow and the
+agent never needs it.
+
+Rendered source citations are computed **on demand** instead, by
+`render_property_citations(neid, properties)`, exposed off the MCP tool surface
+as a plain HTTP route (`POST /citations` on the MCP server, registered with
+`@mcp.custom_route`). It re-fetches the facts and chains the two QS provenance
+endpoints — `POST /elemental/provenance/match` (fact quads → trails) then `POST
+/elemental/provenance/render` (trails → citations, with source/subject/url/
+excerpts), mirroring moongoose's MCP provenance helper. Doing the rendering in
+Python keeps it big-int safe. The UI reaches it through the Nuxt proxy
+`POST /api/queryrunner/citations` (server-only `NUXT_QUERY_MCP_URL`), and only
+when a result is inspected (see the `/result` page below). Everything degrades
+gracefully: an unreachable/unauthorized MCP, or an unmatched source, yields no
+citation rather than an error.
 
 Config comes from env (`GATEWAY_URL` + `TENANT_ORG_ID` + `QS_API_KEY`, or
 `ELEMENTAL_API_URL`) or `broadchurch.yaml`. Deploy with `/deploy_mcp`.
@@ -116,9 +123,15 @@ the over-time pass-rate metric keeps working everywhere.
 - `pages/runs.vue` / `pages/runs/[id].vue` — run history; the detail page has
   expandable per-query rows that load the full MCP navigation trace on demand.
 - `components/QueryEditDialog.vue` — question + expected-answer editor.
+- `pages/result/[queryId].vue` — full-page view of a single query's result
+  (the catalog's MCP-column button links here). Reads the session result from
+  the shared `liveResults` state in `useQueryRunner`, renders the full
+  `QueryTraceViewer`, and lazily fetches + merges source citations for each
+  `get_entity_properties` call via `/api/queryrunner/citations`.
 - `components/QueryTraceViewer.vue` — renders a trace as an Agent ⟷ MCP
-  **call flow**: each tool call shows its exact args + response (expandable)
-  plus per-call timing — a waterfall bar (offset + duration) so reasoning gaps
+  **call flow**: each tool call shows its exact args + full (untruncated)
+  response (expandable) plus per-call timing — a waterfall bar (offset +
+  duration) so reasoning gaps
   between calls are visible. Also shows the parsed answer, reasoning, and raw
   agent output. Per-call timing comes from each ADK `function_call` /
   `function_response` event (the event's own `timestamp`, falling back to the
