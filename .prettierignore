@@ -1,0 +1,25 @@
+# Nuxt build output
+.nuxt/
+.output/
+
+# npm manifests: tabWidth:4 (.prettierrc) would reformat these from
+# npm's native 2-space style into a 1000+ line all-formatting diff on
+# top of any real change. npm owns their formatting, not Prettier.
+package.json
+package-lock.json
+
+# Vendored agent instructions (sourced from the
+# `@yottagraph-app/aether-instructions` npm package via the
+# `/update_instructions` flow). Must stay byte-identical to upstream
+# so the next package update overwrites cleanly without a churn-y
+# diff; formatting is owned by the package, not by this repo.
+# See ENG-543.
+.agents/commands/
+.agents/skills/
+
+# Helm chart templates contain `{{ ... }}` template directives that
+# break Prettier's YAML parser. The README + values.yaml stay under
+# Prettier (handled via direct invocations / pre-commit on those
+# extensions only); the templates/ tree opts out.
+charts/aether-ui/templates/
+charts/aether-agent/templates/

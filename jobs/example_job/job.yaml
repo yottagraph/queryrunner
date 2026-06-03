@@ -1,0 +1,146 @@
+# Compute job manifest — read by the deploy workflow and the Portal.
+#
+# This file is the contract between your job's code and the BC
+# platform. Any field you set here flows into the K8s Job (or CronJob,
+# when `schedule` is set) spec on the per-tenant GKE cluster, and into
+# the Portal's Compute Jobs tab.
+#
+# Per ADR-019 (Consolidate Compute on Kubernetes Jobs), Kubernetes
+# Jobs on the per-tenant GKE cluster is the sole runner. The `runner`
+# field stays in the schema (optional, defaults to `k8s_job`) for
+# forward extensibility, but `runner: cloud_run` is hard-rejected by
+# `scripts/validate-job-manifest.py` with a pointer to the ADR.
+#
+# See `skills/aether/compute.md` (synced to `.agents/skills/aether/`)
+# for the full schema reference, working patterns, and the Cloud SQL +
+# BigQuery write recipes. The validator in
+# `scripts/validate-job-manifest.py` is the canonical enforcer and
+# rejects unknown fields, malformed durations, secret-ref typos, etc.
+# at deploy time with line-level error messages.
+#
+# Required:
+#   name:              Job name (lowercase, hyphenated, max 49 chars).
+#                      Defaults to the directory name if omitted.
+#
+# Optional (runner — forward-compatible extension point):
+#   runner:            'k8s_job' (default). Currently the only
+#                      accepted value; see ADR-019.
+#
+# Optional (resources):
+#   cpu:               CPU per task as a number-string ("1", "2", "4",
+#                      "8", "16", "32"). K8s Jobs accept fractional
+#                      values too ("0.5"). Default: "1".
+#   memory:            Memory per task ("512Mi", "1Gi", "8Gi", "64Gi"...).
+#                      Default: "1Gi".
+#   max_retries:       Per-task retry count (0-10) — wires up to
+#                      `Job.spec.backoffLimit`. Default: 1.
+#   task_timeout:      Single-unit duration ("300s", "30m", "1h", "12h").
+#                      Translates to `Job.spec.activeDeadlineSeconds`.
+#                      Default: "1h".
+#   parallelism:       Tasks running concurrently
+#                      (`Job.spec.parallelism`). Default: 1.
+#   task_count:        Total task count (`Job.spec.completions`); for
+#                      sharded work. Default: 1.
+#   provisioning_model: 'standard' (default) | 'spot'.
+#                      'spot' selects a Spot nodepool for ~70% cost
+#                      savings on retry-safe / checkpointable work,
+#                      but per-tenant clusters don't carry a spot
+#                      nodepool yet (tracked in ENG-563) — the
+#                      workflow rejects 'spot' until ENG-563 lands.
+#
+# Optional (trigger):
+#   schedule:          5-field cron expression ("0 2 * * *"). When set,
+#                      the workflow renders a K8s CronJob instead of a
+#                      Job; the controller fires the first execution
+#                      at the next cron tick. Omit for ad-hoc only.
+#   schedule_timezone: IANA timezone ("America/New_York"). Default: "UTC".
+#
+# Optional (env):
+#   env:               Map of UPPER_SNAKE_CASE env vars passed to every
+#                      task. Values are coerced to strings at deploy
+#                      time. Three reference syntaxes:
+#                        KEY: literal-value
+#                        KEY: ${secret://name/version}     # required
+#                        KEY: ${secret://name/version?}    # optional;
+#                                                          # missing OK
+#                      Secret refs resolve from GCP Secret Manager in
+#                      the per-tenant project and land in an ad-hoc
+#                      K8s Secret keyed by env-var name.
+#
+#                      Platform-injected env is added automatically by
+#                      the deploy workflow (ENG-695) and does NOT need
+#                      to be set here:
+#                        ORG_ID                    # tenant Auth0 org_id
+#                        GATEWAY_URL               # BC portal URL
+#                        QUERY_SERVER_URL          # Lovelace QS URL
+#                        GOOGLE_CLOUD_PROJECT      # per-tenant project
+#                        INSTANCE_CONNECTION_NAME  # Cloud SQL coords,
+#                        DB_USER                   #  if a Cloud SQL
+#                        DB_NAME                   #  instance exists
+#                      Anything you set in `env:` overrides the
+#                      platform value (useful for per-job DB_NAME,
+#                      multi-database tenants, etc.).
+#
+# Optional (notify):
+#   notify:            Slack/email notification config rendered server-
+#                      side by the platform when an execution finishes.
+#                      Both `on_failure` and `on_success` accept the
+#                      same target shape. Artifacts are uploaded by the
+#                      runtime to a per-execution GCS prefix and
+#                      surfaced as signed-URL links in the notification.
+#   notify.signed_url_ttl: Lifetime of the artifact signed URLs.
+#                      Default: "24h".
+#
+# Optional (post_steps):
+#   post_steps:        Inline scripts that run after the main task
+#                      finishes, in order. Each step's `on_nonzero_exit`
+#                      decides whether a nonzero exit aborts the
+#                      execution ('fail', default) or just warns
+#                      ('warn'). Useful for cleanup / artifact upload
+#                      / cache eviction.
+
+name: example-job
+cpu: "1"
+memory: "1Gi"
+max_retries: 1
+task_timeout: "30m"
+parallelism: 1
+task_count: 1
+
+# Uncomment to scale up to heavy compute (K8s Jobs cap at the node's
+# allocatable resources; a 16/64 task lands on a single big node):
+# cpu: "16"
+# memory: "64Gi"
+# task_timeout: "12h"
+# provisioning_model: spot  # pending ENG-563 spot nodepool
+
+# Uncomment to run on a cron schedule (renders as a K8s CronJob):
+# schedule: "0 2 * * *"          # 2:00 AM daily
+# schedule_timezone: "America/New_York"
+
+env:
+  # Custom env — the platform-injected vars (see header) are merged in
+  # automatically; you only need to set things specific to this job.
+  EXAMPLE_FLAG: "true"
+  # DB_PASS: ${secret://my-db-pass/latest}
+  # OPTIONAL_KEY: ${secret://maybe-missing/1?}
+
+# Uncomment to send Slack notifications when this job finishes:
+# notify:
+#   on_failure:
+#     slack: "#bc-alerts"
+#   on_success:
+#     slack: "#bc-jobs"
+#   artifacts:
+#     - path: /tmp/report.html          # task-local file
+#       slack_link: "Report"
+#     - gcs: gs://my-bucket/report.csv  # already-uploaded GCS object
+#       slack_link: "CSV"
+#   signed_url_ttl: "24h"
+
+# Uncomment to run cleanup scripts after the main task:
+# post_steps:
+#   - script: |
+#       echo "cleaning up scratch dir"
+#       rm -rf /tmp/scratch
+#     on_nonzero_exit: warn      # 'fail' (default) | 'warn'

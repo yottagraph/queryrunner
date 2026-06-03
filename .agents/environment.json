@@ -1,0 +1,15 @@
+{
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "install": "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\" && [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\" && nvm install 20 && nvm alias default 20; PORTAL=\"https://broadchurch-portal-194773164895.us-central1.run.app\"; if [ -z \"${AR_NPM_TOKEN:-}\" ] && [ -n \"${AR_TOKEN_PROXY_SECRET:-}\" ]; then export AR_NPM_TOKEN=\"$(curl -fsS -X POST -H \"Authorization: Bearer ${AR_TOKEN_PROXY_SECRET}\" \"$PORTAL/api/ar-npm-token\" 2>/dev/null | sed -n 's/.*\"token\":\"\\([^\"]*\\)\".*/\\1/p')\"; fi; if [ -z \"${AR_NPM_TOKEN:-}\" ]; then export AR_NPM_TOKEN=\"$(gcloud auth print-access-token 2>/dev/null || true)\"; fi; (test -f .env && test -f .agents/.aether-instructions-manifest || node init-project.js --local) && npm install",
+    "terminals": [
+        {
+            "name": "Dev Server",
+            "command": "npm run dev",
+            "port": 3000
+        }
+    ],
+    "persistedDirectories": ["node_modules", ".nuxt", ".output"]
+}

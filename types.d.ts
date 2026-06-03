@@ -1,0 +1,3 @@
+type Nindex = string;
+
+export {};

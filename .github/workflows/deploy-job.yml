@@ -1,0 +1,648 @@
+name: Deploy Compute Job
+on:
+    workflow_dispatch:
+        inputs:
+            job_name:
+                description: 'Job directory name under jobs/ (e.g. example_job)'
+                required: true
+
+permissions:
+    contents: read
+    id-token: write
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Read config from broadchurch.yaml
+              id: config
+              run: |
+                  PROJECT=$(yq -r '.gcp.project' broadchurch.yaml)
+                  echo "project=${PROJECT}" >> "$GITHUB_OUTPUT"
+                  echo "region=$(yq -r '.gcp.region' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "project_name=$(yq -r '.tenant.project_name' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "org_id=$(yq -r '.tenant.org_id' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "service_account=$(yq -r '.tenant.service_account' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "gateway_url=$(yq -r '.gateway.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "query_server_url=$(yq -r '.query_server.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+
+                  # BC 2.0: prefer the per-tenant github-deploy SA in the
+                  # tenant's own project (created by gcp-project.ts at
+                  # provisioning time). Fall back to <project>-default for
+                  # tenants where the YAML hasn't been re-rendered yet.
+                  GH_DEPLOY_SA=$(yq -r '.gcp.github_deploy_sa // ""' broadchurch.yaml)
+                  if [ -z "${GH_DEPLOY_SA}" ] || [ "${GH_DEPLOY_SA}" = "null" ]; then
+                    GH_DEPLOY_SA="github-deploy@${PROJECT}.iam.gserviceaccount.com"
+                  fi
+                  echo "github_deploy_sa=${GH_DEPLOY_SA}" >> "$GITHUB_OUTPUT"
+
+                  # BC 2.0: WIF pool lives in the BC Portal project
+                  # (prj-{env}-bc-portal-none-XXXX), not the legacy
+                  # broadchurch project. broadchurch.yaml carries
+                  # `gcp.wif_provider` (full resource name) when the
+                  # tenant was provisioned under BC 2.0.
+                  WIF_PROVIDER=$(yq -r '.gcp.wif_provider // ""' broadchurch.yaml)
+                  if [ -z "${WIF_PROVIDER}" ] || [ "${WIF_PROVIDER}" = "null" ]; then
+                    WIF_PROVIDER="projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github"
+                  fi
+                  echo "wif_provider=${WIF_PROVIDER}" >> "$GITHUB_OUTPUT"
+
+            - name: Validate job directory
+              run: |
+                  JOB_DIR="jobs/${{ inputs.job_name }}"
+                  if [ ! -d "${JOB_DIR}" ]; then
+                    echo "::error::Job directory ${JOB_DIR} does not exist"
+                    exit 1
+                  fi
+                  if [ ! -f "${JOB_DIR}/job.yaml" ]; then
+                    echo "::error::Job manifest ${JOB_DIR}/job.yaml not found"
+                    exit 1
+                  fi
+                  if [ ! -f "${JOB_DIR}/requirements.txt" ] && [ ! -f "${JOB_DIR}/Dockerfile" ]; then
+                    echo "::error::Job needs requirements.txt (default Dockerfile) or a custom Dockerfile"
+                    exit 1
+                  fi
+
+            # Validate the job manifest against the canonical schema
+            # (ENG-546). Emits normalized JSON to MANIFEST_JSON so
+            # downstream `jq` reads see defaults applied + types
+            # coerced consistently, and rejects unknown fields,
+            # malformed durations, secret-ref typos, etc. with
+            # pointing line-level errors. pyyaml install is ~1s.
+            - name: Validate job manifest
+              id: validate
+              run: |
+                  JOB_DIR="jobs/${{ inputs.job_name }}"
+                  python3 -m pip install --quiet --user pyyaml
+                  MANIFEST_JSON=$(python3 scripts/validate-job-manifest.py "${JOB_DIR}/job.yaml")
+                  echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
+                  echo "${MANIFEST_JSON}" >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
+
+            - name: Read job manifest
+              id: manifest
+              env:
+                  MANIFEST: ${{ steps.validate.outputs.manifest }}
+              run: |
+                  jqr() { jq -r "$1" <<<"$MANIFEST"; }
+                  echo "name=$(jqr .name)" >> "$GITHUB_OUTPUT"
+                  echo "runner=$(jqr .runner)" >> "$GITHUB_OUTPUT"
+                  echo "cpu=$(jqr .cpu)" >> "$GITHUB_OUTPUT"
+                  echo "memory=$(jqr .memory)" >> "$GITHUB_OUTPUT"
+                  echo "max_retries=$(jqr .max_retries)" >> "$GITHUB_OUTPUT"
+                  echo "task_timeout=$(jqr .task_timeout)" >> "$GITHUB_OUTPUT"
+                  echo "parallelism=$(jqr .parallelism)" >> "$GITHUB_OUTPUT"
+                  echo "task_count=$(jqr .task_count)" >> "$GITHUB_OUTPUT"
+                  echo "schedule=$(jqr .schedule)" >> "$GITHUB_OUTPUT"
+                  echo "schedule_timezone=$(jqr .schedule_timezone)" >> "$GITHUB_OUTPUT"
+                  echo "provisioning_model=$(jqr .provisioning_model)" >> "$GITHUB_OUTPUT"
+
+            # `provisioning_model: spot` on a k8s_job is accepted by the
+            # validator (the schema lets you ask for it) but the
+            # tenant clusters provisioned by gcp-bctenant today don't
+            # have a spot nodepool. Fail loud with a pointer to ENG-563
+            # rather than silently producing an unschedulable Pod.
+            - name: Reject provisioning_model spot (k8s_job, v0 limitation)
+              if: steps.manifest.outputs.provisioning_model == 'spot'
+              run: |
+                  echo "::error::provisioning_model: spot requires a spot nodepool, which isn't present on per-tenant GKE clusters yet. Track Linear ENG-563 (https://linear.app/lovelace-tech/issue/ENG-563), or set provisioning_model: standard for now."
+                  exit 1
+
+            - uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: '${{ steps.config.outputs.wif_provider }}'
+                  service_account: '${{ steps.config.outputs.github_deploy_sa }}'
+
+            - uses: google-github-actions/setup-gcloud@v2
+
+            # Standard environment injection (Linear ENG-695).
+            #
+            # The K8s Job pod needs a handful of platform-managed env
+            # vars that no manifest author should have to re-discover or
+            # re-type: tenant identity (ORG_ID), service URLs
+            # (GATEWAY_URL, QUERY_SERVER_URL), the per-tenant GCP project
+            # (GOOGLE_CLOUD_PROJECT), and — if the tenant has Cloud SQL
+            # enabled — the IAM-auth Postgres connection coordinates
+            # (INSTANCE_CONNECTION_NAME, DB_USER, DB_NAME).
+            #
+            # Pre-ENG-695, the K8s path required the manifest author to
+            # paste these into `env:` by hand (or do the gcloud lookup
+            # themselves), with the Cloud SQL connection name being the
+            # main friction point because its random suffix means
+            # convention alone doesn't yield it. The Cloud Run path
+            # injected SOME of these (ORG_ID, GATEWAY_URL,
+            # GOOGLE_CLOUD_PROJECT, BIGQUERY_*) via `--set-env-vars` but
+            # never INSTANCE_CONNECTION_NAME / DB_USER either.
+            #
+            # Now the platform derives the full set here, jq-merges into
+            # the validator's normalized manifest with manifest `env`
+            # taking precedence (so authors can still override a
+            # platform-injected value), and downstream steps consume the
+            # merged manifest. Cloud SQL coords are best-effort: if the
+            # tenant doesn't have a Cloud SQL instance yet, the lookup
+            # returns empty and those three vars are simply not added.
+            #
+            # BigQuery coords are not auto-injected here yet: the Portal
+            # doesn't render `bigquery_dataset` into broadchurch.yaml
+            # for BC 2.0 tenants today (the legacy Cloud Run path's
+            # `yq .gcp.bigquery_dataset` was reading a key that
+            # buildBroadchurchYaml never wrote). Follow-up under ENG-695
+            # extends the Portal-side render + this step in parallel;
+            # for now jobs that need BigQuery set the env explicitly.
+            - name: Derive standard env (ENG-695)
+              id: standard_env
+              env:
+                  MANIFEST: ${{ steps.validate.outputs.manifest }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+                  GATEWAY_URL: ${{ steps.config.outputs.gateway_url }}
+                  QUERY_SERVER_URL: ${{ steps.config.outputs.query_server_url }}
+                  PROJECT: ${{ steps.config.outputs.project }}
+              run: |
+                  set -euo pipefail
+                  STANDARD_ENV=$(jq -nc \
+                    --arg org "${ORG_ID}" \
+                    --arg gw "${GATEWAY_URL}" \
+                    --arg qs "${QUERY_SERVER_URL}" \
+                    --arg proj "${PROJECT}" \
+                    '{
+                      ORG_ID: $org,
+                      GATEWAY_URL: $gw,
+                      QUERY_SERVER_URL: $qs,
+                      GOOGLE_CLOUD_PROJECT: $proj
+                    }')
+
+                  # Resolve the per-tenant GCP project for tenant-scoped
+                  # resource lookups (Cloud SQL, Secret Manager paths, etc.).
+                  # `broadchurch.yaml`'s `.gcp.project` is the SHARED
+                  # platform project (broadchurch) -- the legacy BC 1.0
+                  # default that buildBroadchurchYaml still writes. For
+                  # BC 2.0 tenants we need the per-tenant project ID
+                  # (`bc-<slug>-XXXX`), which the Portal exposes via
+                  # `/connect-gateway`. Call it best-effort: a 409
+                  # (substrate not yet provisioned) is fine here -- we
+                  # just fall back to `PROJECT` and the Cloud SQL lookup
+                  # will quietly produce nothing for non-BC-2.0 tenants.
+                  # See ENG-700 / ENG-695.
+                  TENANT_PROJECT="${PROJECT}"
+                  COORDS_BODY=$(curl -sf "${GATEWAY_URL}/api/projects/${ORG_ID}/connect-gateway" 2>/dev/null || true)
+                  if [ -n "${COORDS_BODY}" ]; then
+                    TENANT_PROJECT_FROM_PORTAL=$(jq -r '.project_id // ""' <<<"${COORDS_BODY}")
+                    if [ -n "${TENANT_PROJECT_FROM_PORTAL}" ] && [ "${TENANT_PROJECT_FROM_PORTAL}" != "null" ]; then
+                      TENANT_PROJECT="${TENANT_PROJECT_FROM_PORTAL}"
+                      echo "Using per-tenant project from Portal connect-gateway: ${TENANT_PROJECT}"
+                    fi
+                  fi
+
+                  # GOOGLE_CLOUD_PROJECT must be the PER-TENANT project, not
+                  # the shared platform project. The initial STANDARD_ENV
+                  # seeded it from PROJECT (= `.gcp.project` = `broadchurch`,
+                  # the BC 1.0 default buildBroadchurchYaml still writes), but
+                  # the `compute.md` contract documents GOOGLE_CLOUD_PROJECT as
+                  # `bc-{slug}` and the pod's GSA only has rights on the
+                  # per-tenant project. Without this override a job's BigQuery
+                  # (or any tenant-scoped GCP client) 403s against
+                  # `projects/broadchurch/...`. Now that TENANT_PROJECT is
+                  # resolved, correct it. For legacy tenants where
+                  # connect-gateway returns nothing, TENANT_PROJECT == PROJECT
+                  # so this is a no-op. (Found in the compute-smoke-001 smoke
+                  # test; ENG-695.)
+                  STANDARD_ENV=$(jq -c \
+                    --arg proj "${TENANT_PROJECT}" \
+                    '. + { GOOGLE_CLOUD_PROJECT: $proj }' \
+                    <<<"${STANDARD_ENV}")
+
+                  # Cloud SQL coords are best-effort. The github-deploy
+                  # SA in the per-tenant project has roles/cloudsql.viewer
+                  # via gcp-bctenant's IAM bindings; an absent instance
+                  # (Cloud SQL capability not enabled, or still
+                  # provisioning) yields an empty list with rc=0.
+                  CONNECTION_NAME=$(gcloud sql instances list \
+                    --project "${TENANT_PROJECT}" \
+                    --format='value(connectionName)' \
+                    --limit=1 2>/dev/null || true)
+                  if [ -n "${CONNECTION_NAME}" ]; then
+                    # IAM-auth Postgres user is the GSA email with the
+                    # `.gserviceaccount.com` suffix stripped. Per
+                    # gcp-bctenant convention the runtime SA is named
+                    # `bc-tenant-jobs@<project>.iam[.gserviceaccount.com]`
+                    # and the DB name is `bctenant`.
+                    DB_USER="bc-tenant-jobs@${TENANT_PROJECT}.iam"
+                    STANDARD_ENV=$(jq -c \
+                      --arg cn "${CONNECTION_NAME}" \
+                      --arg u "${DB_USER}" \
+                      '. + {
+                        INSTANCE_CONNECTION_NAME: $cn,
+                        DB_USER: $u,
+                        DB_NAME: "bctenant"
+                      }' <<<"${STANDARD_ENV}")
+                    echo "Cloud SQL: ${CONNECTION_NAME} (user=${DB_USER})"
+                  else
+                    echo "Cloud SQL: no instance found in ${TENANT_PROJECT}; skipping INSTANCE_CONNECTION_NAME injection"
+                  fi
+
+                  # Merge into the validator's normalized manifest.
+                  # `($std + .env)` means standard env comes first, then
+                  # manifest env overlays it — so authors can override
+                  # any platform-injected value by setting the same key
+                  # in their `env:` block.
+                  MERGED=$(jq -c \
+                    --argjson std "${STANDARD_ENV}" \
+                    '.env = ($std + (.env // {}))' \
+                    <<<"${MANIFEST}")
+
+                  echo "manifest<<EOF" >> "$GITHUB_OUTPUT"
+                  echo "${MERGED}" >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
+                  echo "--- Standard env injected ---"
+                  jq -r '.env | to_entries[] | "  \(.key)=\(.value)"' <<<"${MERGED}"
+
+            - name: Generate Dockerfile if missing
+              run: |
+                  JOB_DIR="jobs/${{ inputs.job_name }}"
+                  if [ ! -f "${JOB_DIR}/Dockerfile" ]; then
+                    cat > "${JOB_DIR}/Dockerfile" <<'DOCKERFILE'
+                  FROM python:3.12-slim
+                  WORKDIR /app
+                  RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libpq5 && rm -rf /var/lib/apt/lists/*
+                  COPY requirements.txt .
+                  RUN pip install --no-cache-dir -r requirements.txt
+                  COPY . .
+                  CMD ["python", "main.py"]
+                  DOCKERFILE
+                    echo "Generated default Dockerfile"
+                  fi
+
+            - name: Bundle broadchurch.yaml + shared utilities into job
+              run: |
+                  JOB_DIR="jobs/${{ inputs.job_name }}"
+                  cp broadchurch.yaml "${JOB_DIR}/broadchurch.yaml"
+                  if [ -f "agents/broadchurch_auth.py" ]; then
+                    cp agents/broadchurch_auth.py "${JOB_DIR}/"
+                    echo "Bundled broadchurch_auth.py into ${JOB_DIR}/"
+                  fi
+
+            - name: Build container
+              id: build
+              run: |
+                  JOB_NAME="${{ steps.manifest.outputs.name }}"
+                  IMAGE="gcr.io/${{ steps.config.outputs.project }}/job-${JOB_NAME}"
+                  echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+                  BUILD_ID=$(gcloud builds submit "jobs/${{ inputs.job_name }}/" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --tag "${IMAGE}" \
+                    --async --format='value(id)' \
+                    --quiet)
+                  echo "Submitted Cloud Build: ${BUILD_ID}"
+
+                  while true; do
+                    STATUS=$(gcloud builds describe "${BUILD_ID}" \
+                      --project "${{ steps.config.outputs.project }}" \
+                      --format='value(status)')
+                    echo "Build status: ${STATUS}"
+                    if [[ "${STATUS}" == "SUCCESS" ]]; then break; fi
+                    if [[ "${STATUS}" =~ ^(FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR)$ ]]; then
+                      echo "::error::Cloud Build failed with status: ${STATUS}"
+                      exit 1
+                    fi
+                    sleep 15
+                  done
+
+            # --- K8s Jobs dispatch (Linear ENG-550 / PR-A3-v2; sole
+            # path per ADR-019, 2026-05-27) ---
+            #
+            # Resolves cluster coordinates via the Portal, materializes
+            # secrets into an ad-hoc K8s Secret, renders a Job
+            # (immediate) or CronJob (scheduled) manifest, and applies
+            # it through Connect Gateway. The workflow's job is
+            # "submit + verify the apiserver accepted the resource" —
+            # live execution monitoring belongs to the Portal cockpit
+            # (ENG-553).
+            #
+            # The `if: runner == 'k8s_job'` gates on every step in this
+            # block are retained for forward-compatibility — the
+            # validator currently accepts no other runner, but the
+            # `runner` field stays in the schema as the extension point
+            # if a third substrate ever lands (see ADR-019 item 1).
+
+            - name: Resolve cluster coordinates from Portal (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job'
+              id: coords
+              env:
+                  GATEWAY: ${{ steps.config.outputs.gateway_url }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+              run: |
+                  set -euo pipefail
+                  COORDS=$(curl -sSf "${GATEWAY}/api/projects/${ORG_ID}/connect-gateway") || {
+                    echo "::error::Portal connect-gateway lookup failed for org_id=${ORG_ID}. If this tenant predates the K8s Jobs substrate, provision the BC 2.0 GCP capability before deploying with runner: k8s_job."
+                    exit 1
+                  }
+                  PROJECT_NUMBER=$(jq -r .project_number <<<"${COORDS}")
+                  LOCATION=$(jq -r .location <<<"${COORDS}")
+                  MEMBERSHIP_ID=$(jq -r .gke_hub_membership_id <<<"${COORDS}")
+                  NAMESPACE=$(jq -r .namespace <<<"${COORDS}")
+                  for v in PROJECT_NUMBER LOCATION MEMBERSHIP_ID NAMESPACE; do
+                    if [ -z "${!v}" ] || [ "${!v}" = "null" ]; then
+                      echo "::error::Portal returned empty ${v}. Coords: ${COORDS}"
+                      exit 1
+                    fi
+                  done
+                  echo "project_number=${PROJECT_NUMBER}" >> "$GITHUB_OUTPUT"
+                  echo "location=${LOCATION}" >> "$GITHUB_OUTPUT"
+                  echo "membership_id=${MEMBERSHIP_ID}" >> "$GITHUB_OUTPUT"
+                  echo "namespace=${NAMESPACE}" >> "$GITHUB_OUTPUT"
+                  echo "Resolved: project=${PROJECT_NUMBER} loc=${LOCATION} membership=${MEMBERSHIP_ID} ns=${NAMESPACE}"
+
+            # Generate a per-execution UUID. Plumbed into the K8s Job
+            # name AND the compute-job-id label so cockpit log filters
+            # can correlate this run end-to-end. Stable across the
+            # remaining workflow steps.
+            - name: Generate execution ID (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job'
+              id: exec
+              run: |
+                  EXEC_ID=$(python3 -c 'import uuid; print(uuid.uuid4())')
+                  echo "id=${EXEC_ID}" >> "$GITHUB_OUTPUT"
+                  echo "Generated execution_id=${EXEC_ID}"
+
+            # Render the K8s manifest + extract the list of secret refs
+            # the workflow needs to materialize. Renderer is pure: no
+            # GCP calls, no kubectl calls — just JSON → YAML.
+            - name: Render K8s Job/CronJob manifest (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job'
+              id: render
+              env:
+                  # `standard_env.outputs.manifest` is `validate.outputs.manifest`
+                  # with the platform-injected env (ORG_ID, GATEWAY_URL,
+                  # GOOGLE_CLOUD_PROJECT, optionally INSTANCE_CONNECTION_NAME +
+                  # DB_USER + DB_NAME) merged into `.env`. See the
+                  # "Derive standard env (ENG-695)" step above.
+                  MANIFEST: ${{ steps.standard_env.outputs.manifest }}
+              run: |
+                  set -euo pipefail
+                  python3 -m pip install --quiet --user pyyaml || python3 -m pip install --quiet pyyaml
+                  echo "${MANIFEST}" > /tmp/manifest.json
+                  # Renderer writes the K8s YAML to stdout and the
+                  # secret-refs JSON to stderr (one line, last). Split
+                  # them via a tmp file so both are recoverable.
+                  python3 scripts/render-k8s-job.py \
+                    --manifest /tmp/manifest.json \
+                    --image "${{ steps.build.outputs.image }}" \
+                    --namespace "${{ steps.coords.outputs.namespace }}" \
+                    --execution-id "${{ steps.exec.outputs.id }}" \
+                    --org-id "${{ steps.config.outputs.org_id }}" \
+                    --print-secret-refs \
+                    > /tmp/k8s-manifest.yaml \
+                    2> /tmp/render-stderr.txt
+                  # Last line of stderr is the secret-refs JSON.
+                  SECRET_REFS=$(tail -n 1 /tmp/render-stderr.txt)
+                  echo "${SECRET_REFS}" > /tmp/secret-refs.json
+                  echo "secret_count=$(jq 'length' /tmp/secret-refs.json)" >> "$GITHUB_OUTPUT"
+                  echo "--- Rendered manifest (first 40 lines) ---"
+                  head -n 40 /tmp/k8s-manifest.yaml
+                  echo "--- Secret refs ---"
+                  cat /tmp/secret-refs.json
+
+            # Fetch each ${secret://name/version} ref from GCP Secret
+            # Manager and materialize a single K8s Secret named
+            # `job-{job_name}-secrets`, keyed by env-var name. The
+            # rendered Job spec already references this Secret via
+            # secretKeyRef, so the cluster picks it up on Pod start.
+            #
+            # Optional secrets (`?` suffix) are tolerated when missing:
+            # we skip them and let the renderer's optional=true cue
+            # leave the env var unset.
+            - name: Resolve secrets and materialize K8s Secret (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job' && steps.render.outputs.secret_count != '0'
+              env:
+                  PROJECT: ${{ steps.config.outputs.project }}
+                  NAMESPACE: ${{ steps.coords.outputs.namespace }}
+                  JOB_NAME: ${{ steps.manifest.outputs.name }}
+              run: |
+                  set -euo pipefail
+                  SECRET_NAME="job-${JOB_NAME}-secrets"
+                  TMP_SECRET=$(mktemp)
+                  cat > "${TMP_SECRET}" <<EOF
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: ${SECRET_NAME}
+                    namespace: ${NAMESPACE}
+                    labels:
+                      bc-job-name: ${JOB_NAME}
+                      app.kubernetes.io/managed-by: broadchurch
+                  type: Opaque
+                  data:
+                  EOF
+                  SKIPPED=()
+                  while read -r ref; do
+                    ENV_VAR=$(jq -r .env_var <<<"${ref}")
+                    SECRET_REF=$(jq -r .name <<<"${ref}")
+                    VERSION=$(jq -r .version <<<"${ref}")
+                    OPTIONAL=$(jq -r .optional <<<"${ref}")
+                    if VALUE=$(gcloud secrets versions access "${VERSION}" \
+                           --secret "${SECRET_REF}" \
+                           --project "${PROJECT}" 2>/dev/null); then
+                      # Base64-encode without newlines for the K8s Secret data field.
+                      ENC=$(printf '%s' "${VALUE}" | base64 | tr -d '\n')
+                      echo "  ${ENV_VAR}: ${ENC}" >> "${TMP_SECRET}"
+                    else
+                      if [ "${OPTIONAL}" = "true" ]; then
+                        echo "::notice::Optional secret ${SECRET_REF}/${VERSION} unavailable; ${ENV_VAR} will be unset"
+                        SKIPPED+=("${ENV_VAR}")
+                      else
+                        echo "::error::Required secret ${SECRET_REF}/${VERSION} unavailable in project ${PROJECT}. Grant 'roles/secretmanager.secretAccessor' to ${{ steps.config.outputs.github_deploy_sa }} on the secret, or fix the reference in env.${ENV_VAR}."
+                        exit 1
+                      fi
+                    fi
+                  done < <(jq -c '.[]' /tmp/secret-refs.json)
+                  # K8s Secret with no data: keys is technically valid but unusual; print for traceability.
+                  echo "Materialized Secret ${SECRET_NAME} (skipped: ${SKIPPED[*]:-none})"
+                  cp "${TMP_SECRET}" /tmp/k8s-secret.yaml
+
+            # Build a one-off kubeconfig that points kubectl at Connect
+            # Gateway with the WIF-derived access token. KUBECONFIG env
+            # var is exported via GITHUB_ENV so subsequent steps inherit
+            # it without re-shelling. The token's ~1h TTL is plenty for
+            # a single deploy run; the gcloud identity refreshes if we
+            # ever loop here.
+            - name: Configure kubectl for Connect Gateway (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job'
+              env:
+                  PROJECT_NUMBER: ${{ steps.coords.outputs.project_number }}
+                  LOCATION: ${{ steps.coords.outputs.location }}
+                  MEMBERSHIP_ID: ${{ steps.coords.outputs.membership_id }}
+                  NAMESPACE: ${{ steps.coords.outputs.namespace }}
+              run: |
+                  set -euo pipefail
+                  TOKEN=$(gcloud auth print-access-token)
+                  APISERVER="https://connectgateway.googleapis.com/v1/projects/${PROJECT_NUMBER}/locations/${LOCATION}/gkeMemberships/${MEMBERSHIP_ID}"
+                  KUBECONFIG_FILE=/tmp/kubeconfig
+                  cat > "${KUBECONFIG_FILE}" <<EOF
+                  apiVersion: v1
+                  kind: Config
+                  clusters:
+                  - name: tenant
+                    cluster:
+                      server: ${APISERVER}
+                  contexts:
+                  - name: tenant
+                    context:
+                      cluster: tenant
+                      user: gateway
+                      namespace: ${NAMESPACE}
+                  current-context: tenant
+                  users:
+                  - name: gateway
+                    user:
+                      token: ${TOKEN}
+                  EOF
+                  # `$GITHUB_ENV` propagates KUBECONFIG to LATER steps only;
+                  # export it here so the smoke `kubectl` calls below in
+                  # this same step actually use the Connect Gateway
+                  # kubeconfig (otherwise kubectl falls back to
+                  # ~/.kube/config which doesn't exist on the runner and
+                  # tries localhost:8080).
+                  export KUBECONFIG="${KUBECONFIG_FILE}"
+                  echo "KUBECONFIG=${KUBECONFIG_FILE}" >> "$GITHUB_ENV"
+                  echo "Configured kubectl for ${APISERVER}"
+                  kubectl version --client --output=yaml | head -n 5
+                  # No connectivity smoke here. kubectl's API discovery
+                  # (memcache) hits unauthenticated discovery paths
+                  # (`/apis/...`) that on a hardened tenant cluster
+                  # return 403 ("Error from server (Forbidden): unknown")
+                  # even when the deployer SA has the right namespaced
+                  # permissions. The downstream `kubectl create -f`
+                  # against `batch/jobs` exercises real RBAC and gives
+                  # the same fail-fast signal one step later. Re-add a
+                  # smoke only if we can find a discovery-free probe.
+
+            - name: Apply ad-hoc K8s Secret (k8s_job)
+              if: steps.manifest.outputs.runner == 'k8s_job' && steps.render.outputs.secret_count != '0'
+              run: |
+                  set -euo pipefail
+                  # --validate=false: client-side OpenAPI validation does
+                  # API discovery which the tenant-jobs-deployer Role
+                  # doesn't permit (deliberate — discovery is cluster-
+                  # scoped). Server-side validation still runs on apply.
+                  kubectl apply --validate=false -f /tmp/k8s-secret.yaml
+
+            # Jobs: kubectl create (not apply) because Job spec is
+            # immutable — apply would 422 on re-deploy. Each deploy
+            # produces a uniquely-named Job (bc-job-{name}-{exec_id})
+            # so collisions can't happen. The Job starts running
+            # immediately upon creation.
+            - name: Create K8s Job (k8s_job, immediate)
+              if: steps.manifest.outputs.runner == 'k8s_job' && steps.manifest.outputs.schedule == ''
+              run: |
+                  set -euo pipefail
+                  # --validate=false: see Apply ad-hoc K8s Secret step
+                  # rationale (discovery is not granted to the deployer).
+                  kubectl create --validate=false -f /tmp/k8s-manifest.yaml
+                  JOB_FULL_NAME=$(yq -r '.metadata.name' /tmp/k8s-manifest.yaml)
+                  echo "Submitted Job ${JOB_FULL_NAME}; check Portal cockpit for live status."
+
+                  # Brief settle so kubectl can surface immediate failures
+                  # (image-pull errors, RBAC denials). 30s is enough for
+                  # the apiserver to schedule and the kubelet to report
+                  # initial Pod status; we DON'T wait for completion
+                  # because Jobs can run for hours and the workflow's
+                  # contract is "submitted", not "completed".
+                  # Reusable helper: dump pod descriptions + logs for
+                  # all pods spawned by the named Job. Used in both the
+                  # failure branch (full --tail=500 for debug) and the
+                  # success branch (smaller --tail=100 for confirmation).
+                  dump_pod_logs() {
+                    local job_name="$1"
+                    local tail_lines="${2:-500}"
+                    echo "::group::Pod logs (${job_name})"
+                    local pods
+                    pods=$(kubectl get pods \
+                      -l batch.kubernetes.io/job-name="${job_name}" \
+                      -o name --request-timeout=10s || true)
+                    if [ -z "${pods}" ]; then
+                      echo "(no pods found for Job ${job_name})"
+                    else
+                      for pod in ${pods}; do
+                        echo "------- ${pod} describe -------"
+                        kubectl describe "${pod}" 2>&1 \
+                          | sed -n '/Events:/,$p' || true
+                        echo "------- ${pod} logs (--tail=${tail_lines}) -------"
+                        kubectl logs "${pod}" --tail="${tail_lines}" \
+                          --timestamps 2>&1 || true
+                      done
+                    fi
+                    echo "::endgroup::"
+                  }
+
+                  for i in $(seq 1 6); do
+                    sleep 5
+                    STATUS=$(kubectl get job "${JOB_FULL_NAME}" -o json | jq -r '.status // {}')
+                    echo "  [${i}/6] status: $(jq -c '{active, succeeded, failed, conditions}' <<<"${STATUS}")"
+                    FAILED_REASON=$(jq -r '.conditions[]? | select(.type=="Failed") | .reason' <<<"${STATUS}")
+                    if [ -n "${FAILED_REASON}" ]; then
+                      echo "::error::Job ${JOB_FULL_NAME} failed at submit time: ${FAILED_REASON}"
+                      kubectl describe job "${JOB_FULL_NAME}" || true
+                      # Failure case: full --tail=500 so big tracebacks
+                      # aren't truncated (CI log limits still apply).
+                      dump_pod_logs "${JOB_FULL_NAME}" 500
+                      exit 1
+                    fi
+                    SUCCEEDED=$(jq -r '.succeeded // 0' <<<"${STATUS}")
+                    if [ "${SUCCEEDED}" -gt 0 ]; then
+                      echo "Job ${JOB_FULL_NAME} reached Succeeded state in $((i * 5))s; dumping last 100 log lines for confirmation."
+                      # Success case: capped to --tail=100. Useful for
+                      # spotting JOB_SUCCESS-style sentinels + row
+                      # counts without flooding CI logs for jobs that
+                      # already exited cleanly.
+                      dump_pod_logs "${JOB_FULL_NAME}" 100
+                      break
+                    fi
+                  done
+
+            # CronJobs: kubectl apply (CronJob spec is mutable) — patches
+            # the schedule in place on re-deploy. No immediate run; the
+            # controller fires the first one at the next cron tick.
+            - name: Apply K8s CronJob (k8s_job, scheduled)
+              if: steps.manifest.outputs.runner == 'k8s_job' && steps.manifest.outputs.schedule != ''
+              run: |
+                  set -euo pipefail
+                  # --validate=false: see Apply ad-hoc K8s Secret step
+                  # rationale (discovery is not granted to the deployer).
+                  kubectl apply --validate=false -f /tmp/k8s-manifest.yaml
+                  CRON_NAME=$(yq -r '.metadata.name' /tmp/k8s-manifest.yaml)
+                  echo "Applied CronJob ${CRON_NAME}; next run per schedule '${{ steps.manifest.outputs.schedule }}' (${{ steps.manifest.outputs.schedule_timezone }})."
+
+            # Portal registration — runner-agnostic, runs for both
+            # cloud_run and k8s_job. The Portal's `jobs` collection
+            # accumulates deploy provenance so the cockpit can show
+            # historical deploys alongside live job state regardless
+            # of runner.
+            - name: Register with Portal
+              run: |
+                  GATEWAY="${{ steps.config.outputs.gateway_url }}"
+                  ORG_ID="${{ steps.config.outputs.org_id }}"
+                  JOB_NAME="${{ steps.manifest.outputs.name }}"
+                  SOURCE_DIR="${{ inputs.job_name }}"
+                  SCHEDULE='${{ steps.manifest.outputs.schedule }}'
+                  # Stamp the runner so the Portal dispatcher (run-now, MCP
+                  # run_compute_job, cockpit) routes to the right backend.
+                  # Omitting it makes the registration endpoint default to
+                  # `cloud_run`, so a K8s Job's Run-now would dispatch to the
+                  # (disabled) Cloud Run Jobs API and 403. (Found in the
+                  # compute-smoke-001 smoke test; ENG-553 / ENG-695.)
+                  RUNNER='${{ steps.manifest.outputs.runner }}'
+
+                  curl -sf -X POST "${GATEWAY}/api/projects/${ORG_ID}/jobs" \
+                    -H "Content-Type: application/json" \
+                    -d "{
+                      \"job_name\": \"${JOB_NAME}\",
+                      \"source_dir\": \"${SOURCE_DIR}\",
+                      \"schedule\": \"${SCHEDULE}\",
+                      \"runner\": \"${RUNNER}\",
+                      \"deployed_by\": \"github-actions\"
+                    }" || echo "::warning::Portal registration failed (job is deployed; UI may lag)"
+
+                  echo "Registered ${JOB_NAME} with Portal"

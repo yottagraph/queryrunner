@@ -1,0 +1,153 @@
+name: Deploy Cloud Workflow
+on:
+    workflow_dispatch:
+        inputs:
+            workflow_name:
+                description: "Workflow directory name under workflows/ (e.g. example_workflow)"
+                required: true
+
+permissions:
+    contents: read
+    id-token: write
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Read config from broadchurch.yaml
+              id: config
+              run: |
+                  PROJECT=$(yq -r '.gcp.project' broadchurch.yaml)
+                  echo "project=${PROJECT}" >> "$GITHUB_OUTPUT"
+                  echo "region=$(yq -r '.gcp.region' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "org_id=$(yq -r '.tenant.org_id' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "service_account=$(yq -r '.tenant.service_account' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "gateway_url=$(yq -r '.gateway.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+
+                  # BC 2.0: per-tenant github-deploy SA (fallback to per-project default).
+                  GH_DEPLOY_SA=$(yq -r '.gcp.github_deploy_sa // ""' broadchurch.yaml)
+                  if [ -z "${GH_DEPLOY_SA}" ] || [ "${GH_DEPLOY_SA}" = "null" ]; then
+                    GH_DEPLOY_SA="github-deploy@${PROJECT}.iam.gserviceaccount.com"
+                  fi
+                  echo "github_deploy_sa=${GH_DEPLOY_SA}" >> "$GITHUB_OUTPUT"
+
+                  # BC 2.0: WIF pool moved from broadchurch to the BC
+                  # Portal project; broadchurch.yaml carries the full
+                  # provider resource name when the tenant was
+                  # provisioned under BC 2.0.
+                  WIF_PROVIDER=$(yq -r '.gcp.wif_provider // ""' broadchurch.yaml)
+                  if [ -z "${WIF_PROVIDER}" ] || [ "${WIF_PROVIDER}" = "null" ]; then
+                    WIF_PROVIDER="projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github"
+                  fi
+                  echo "wif_provider=${WIF_PROVIDER}" >> "$GITHUB_OUTPUT"
+
+            - name: Validate workflow directory
+              run: |
+                  WF_DIR="workflows/${{ inputs.workflow_name }}"
+                  if [ ! -f "${WF_DIR}/workflow.yaml" ]; then
+                    echo "::error::Workflow definition ${WF_DIR}/workflow.yaml not found"
+                    exit 1
+                  fi
+                  if [ ! -f "${WF_DIR}/manifest.yaml" ]; then
+                    echo "::error::Workflow manifest ${WF_DIR}/manifest.yaml not found"
+                    exit 1
+                  fi
+
+            - name: Read workflow manifest
+              id: manifest
+              run: |
+                  WF_DIR="workflows/${{ inputs.workflow_name }}"
+                  NAME=$(yq -r '.name // "${{ inputs.workflow_name }}"' "${WF_DIR}/manifest.yaml" | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+                  echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+                  echo "call_log_level=$(yq -r '.call_log_level // "LOG_ERRORS_ONLY"' "${WF_DIR}/manifest.yaml")" >> "$GITHUB_OUTPUT"
+                  echo "schedule=$(yq -r '.schedule // ""' "${WF_DIR}/manifest.yaml")" >> "$GITHUB_OUTPUT"
+                  echo "schedule_timezone=$(yq -r '.schedule_timezone // "UTC"' "${WF_DIR}/manifest.yaml")" >> "$GITHUB_OUTPUT"
+                  SCHEDULE_INPUT=$(yq -r '.schedule_input // "{}"' "${WF_DIR}/manifest.yaml")
+                  # Persist as a single-line file to avoid shell-escape issues
+                  echo "${SCHEDULE_INPUT}" > /tmp/schedule_input.json
+
+            - uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: "${{ steps.config.outputs.wif_provider }}"
+                  service_account: "${{ steps.config.outputs.github_deploy_sa }}"
+
+            - uses: google-github-actions/setup-gcloud@v2
+
+            - name: Deploy Cloud Workflow
+              run: |
+                  WF_DIR="workflows/${{ inputs.workflow_name }}"
+                  WF_NAME="${{ steps.manifest.outputs.name }}"
+                  PROJECT="${{ steps.config.outputs.project }}"
+                  REGION="${{ steps.config.outputs.region }}"
+                  SA="${{ steps.config.outputs.service_account }}"
+
+                  gcloud workflows deploy "${WF_NAME}" \
+                    --project "${PROJECT}" \
+                    --location "${REGION}" \
+                    --source "${WF_DIR}/workflow.yaml" \
+                    --service-account "${SA}" \
+                    --call-log-level "${{ steps.manifest.outputs.call_log_level }}" \
+                    --quiet
+                  echo "Deployed workflow: ${WF_NAME}"
+
+            - name: Configure Cloud Scheduler entry (if schedule set)
+              if: steps.manifest.outputs.schedule != ''
+              run: |
+                  WF_NAME="${{ steps.manifest.outputs.name }}"
+                  PROJECT="${{ steps.config.outputs.project }}"
+                  REGION="${{ steps.config.outputs.region }}"
+                  SCHEDULER_NAME="workflow-${WF_NAME}"
+                  CRON='${{ steps.manifest.outputs.schedule }}'
+                  TZ='${{ steps.manifest.outputs.schedule_timezone }}'
+                  SA='${{ steps.config.outputs.service_account }}'
+
+                  EXEC_URL="https://workflowexecutions.googleapis.com/v1/projects/${PROJECT}/locations/${REGION}/workflows/${WF_NAME}/executions"
+                  BODY=$(jq -nc --argjson input "$(cat /tmp/schedule_input.json)" '{argument: ($input | tostring)}')
+
+                  if gcloud scheduler jobs describe "${SCHEDULER_NAME}" \
+                       --project "${PROJECT}" --location "${REGION}" >/dev/null 2>&1; then
+                    gcloud scheduler jobs update http "${SCHEDULER_NAME}" \
+                      --project "${PROJECT}" --location "${REGION}" \
+                      --schedule "${CRON}" \
+                      --time-zone "${TZ}" \
+                      --uri "${EXEC_URL}" \
+                      --http-method POST \
+                      --message-body "${BODY}" \
+                      --oauth-service-account-email "${SA}" \
+                      --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
+                      --quiet
+                    echo "Updated Cloud Scheduler entry: ${SCHEDULER_NAME}"
+                  else
+                    gcloud scheduler jobs create http "${SCHEDULER_NAME}" \
+                      --project "${PROJECT}" --location "${REGION}" \
+                      --schedule "${CRON}" \
+                      --time-zone "${TZ}" \
+                      --uri "${EXEC_URL}" \
+                      --http-method POST \
+                      --message-body "${BODY}" \
+                      --oauth-service-account-email "${SA}" \
+                      --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
+                      --quiet
+                    echo "Created Cloud Scheduler entry: ${SCHEDULER_NAME}"
+                  fi
+
+            - name: Register with Portal
+              run: |
+                  GATEWAY="${{ steps.config.outputs.gateway_url }}"
+                  ORG_ID="${{ steps.config.outputs.org_id }}"
+                  WF_NAME="${{ steps.manifest.outputs.name }}"
+                  SOURCE_DIR="${{ inputs.workflow_name }}"
+                  SCHEDULE='${{ steps.manifest.outputs.schedule }}'
+
+                  curl -sf -X POST "${GATEWAY}/api/projects/${ORG_ID}/workflows" \
+                    -H "Content-Type: application/json" \
+                    -d "{
+                      \"workflow_name\": \"${WF_NAME}\",
+                      \"source_dir\": \"${SOURCE_DIR}\",
+                      \"schedule\": \"${SCHEDULE}\",
+                      \"deployed_by\": \"github-actions\"
+                    }" || echo "::warning::Portal registration failed (workflow is deployed; UI may lag)"
+
+                  echo "Registered ${WF_NAME} with Portal"

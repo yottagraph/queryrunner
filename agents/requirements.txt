@@ -1,0 +1,20 @@
+# Runtime deps for the BC 2.0 in-cluster GKE agent server (ADR-021).
+#
+# This is the image the aether-agent Helm chart runs: `adk api_server`
+# serving every agent package under agents/ as a containerized FastAPI
+# service on the per-tenant GKE cluster. It is NOT the Agent Engine
+# deploy path — there is no `agent_engines` extra here on purpose.
+#
+# Pin ADK to the 1.x line for the same reason the old Agent Engine deploy
+# did: google-adk 2.x requires google-cloud-aiplatform>=1.95 plumbing we
+# haven't verified against the GKE runtime yet. Bump deliberately.
+google-adk>=1.2.0,<2.0
+google-cloud-aiplatform[adk]>=1.95.0,<2.0
+google-auth>=2.20.0
+# adk api_server is a FastAPI app; uvicorn is the ASGI server it runs on.
+# Declared explicitly so the container has it even if a future ADK release
+# makes it an optional extra.
+uvicorn>=0.30.0
+httpx>=0.27.0
+mcp>=1.0.0
+pyyaml>=6.0

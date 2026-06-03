@@ -1,0 +1,28 @@
+pyyaml>=6.0
+requests>=2.31
+
+# Uncomment what your job actually needs:
+
+# --- Cloud SQL (IAM-auth via the Python Connector) ---
+# The canonical BC 2.0 Postgres pattern. The platform injects
+# INSTANCE_CONNECTION_NAME / DB_USER / DB_NAME when Cloud SQL is
+# enabled; the connector handles the IAM token exchange.
+# cloud-sql-python-connector[pg8000]>=1.10
+# pg8000>=1.30
+
+# --- BigQuery (per-tenant analytical dataset) ---
+# google-cloud-bigquery>=3
+
+# --- Google Cloud Storage ---
+# google-cloud-storage>=2
+
+# --- Secret Manager (rarely needed — secrets land via job.yaml's
+# ${secret://name/version} syntax and arrive as plain env vars) ---
+# google-cloud-secret-manager>=2
+
+# --- Tabular / scientific compute ---
+# pandas>=2.0
+# numpy>=1.24
+
+# --- Vertex AI (model calls from the job) ---
+# google-cloud-aiplatform>=1.40

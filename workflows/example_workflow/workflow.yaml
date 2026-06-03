@@ -1,0 +1,102 @@
+# Cloud Workflows definition — orchestrates one or more compute jobs.
+#
+# This is a starting point for the canonical "for each entity:
+# enrich, score, write" pattern. The workflow runs as a single
+# Cloud Workflows execution; each step calls a Cloud Run Job.
+#
+# Workflows handle: state, retries, fan-out, error branches.
+# Your jobs stay stateless and idempotent — that's the point.
+#
+# Local testing isn't really a thing for Cloud Workflows; iterate
+# in the Cloud Workflows UI or via:
+#
+#     gcloud workflows execute example-workflow \
+#         --project <project> \
+#         --location us-central1 \
+#         --data '{"limit": 100}'
+#
+# Deployment:
+#     /deploy_workflow example_workflow
+#
+# Reference:
+#     https://cloud.google.com/workflows/docs/reference/syntax
+
+main:
+    params: [input]
+    steps:
+        - init:
+              assign:
+                  - project: ${sys.get_env("GOOGLE_CLOUD_PROJECT")}
+                  - region: "us-central1"
+                  - limit: ${default(map.get(input, "limit"), 100)}
+                  - num_shards: ${default(map.get(input, "shards"), 4)}
+
+        - log_start:
+              call: sys.log
+              args:
+                  text: ${"Starting example_workflow with limit=" + string(limit) + " shards=" + string(num_shards)}
+                  severity: INFO
+
+        # Step 1: enrich — fan out across N parallel shards.
+        # Each shard runs the enrich-job Cloud Run Job with a different
+        # CLOUD_RUN_TASK_INDEX environment variable (Cloud Run Jobs
+        # native sharding). Wait for all shards to complete.
+        - enrich_parallel:
+              parallel:
+                  shared: [project, region]
+                  for:
+                      value: shard_idx
+                      range: ${[0, num_shards - 1]}
+                      steps:
+                          - run_enrich_shard:
+                                call: googleapis.run.v1.namespaces.jobs.run
+                                args:
+                                    name: ${"namespaces/" + project + "/jobs/enrich-job"}
+                                    location: ${region}
+                                    body:
+                                        overrides:
+                                            containerOverrides:
+                                                - env:
+                                                      - name: SHARD_INDEX
+                                                        value: ${string(shard_idx)}
+                                                      - name: TOTAL_SHARDS
+                                                        value: ${string(num_shards)}
+                                                      - name: WORKFLOW_INPUT
+                                                        value: ${json.encode_to_string(input)}
+
+        # Step 2: score — single-task aggregation across all enriched data.
+        - score:
+              call: googleapis.run.v1.namespaces.jobs.run
+              args:
+                  name: ${"namespaces/" + project + "/jobs/score-job"}
+                  location: ${region}
+                  body:
+                      overrides:
+                          containerOverrides:
+                              - env:
+                                    - name: WORKFLOW_INPUT
+                                      value: ${json.encode_to_string(input)}
+
+        # Step 3: write — persist results to tenant Postgres.
+        - write:
+              call: googleapis.run.v1.namespaces.jobs.run
+              args:
+                  name: ${"namespaces/" + project + "/jobs/write-job"}
+                  location: ${region}
+                  body:
+                      overrides:
+                          containerOverrides:
+                              - env:
+                                    - name: WORKFLOW_INPUT
+                                      value: ${json.encode_to_string(input)}
+
+        - log_done:
+              call: sys.log
+              args:
+                  text: "example_workflow complete"
+                  severity: INFO
+
+        - return_result:
+              return:
+                  status: ok
+                  shards: ${num_shards}

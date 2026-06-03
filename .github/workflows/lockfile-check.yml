@@ -1,0 +1,49 @@
+name: Lockfile Check
+
+# Guards against package-lock.json drift that breaks `npm ci`.
+#
+# `npm ci` (used by publish-instructions.yml and tenant init) is strict: the
+# lockfile must exactly satisfy the dependency tree npm resolves from
+# package.json. npm 11 (Node 22/24) and npm 10 (Node 20, which CI uses) handle
+# optional peer dependencies differently — npm 11 omits them from the lock,
+# npm 10 expects them present. A lock regenerated under npm 11 therefore makes
+# `npm ci` fail on CI with "Missing: <pkg> from lock file" (ENG-791).
+#
+# This runs the exact failing command on the project's pinned Node version so
+# the drift is caught at PR time instead of silently breaking skill publishing
+# on main. If this fails, regenerate the lock on Node 20:
+#   nvm use 20 && npm install --package-lock-only && git add package-lock.json
+on:
+    pull_request:
+        paths:
+            - 'package.json'
+            - 'package-lock.json'
+
+concurrency:
+    group: lockfile-check-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    npm-ci:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-node@v6
+              with:
+                  node-version-file: '.nvmrc'
+            # @yottagraph-app/* now resolves only from GCP Artifact Registry, so
+            # `npm ci` needs an AR token. Authenticate via Workload Identity
+            # Federation; the committed root .npmrc reads ${AR_NPM_TOKEN}.
+            - uses: google-github-actions/auth@v2
+              id: ar_auth
+              with:
+                  token_format: 'access_token'
+                  workload_identity_provider: ${{ vars.AR_WIF_PROVIDER || 'projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github' }}
+                  service_account: ${{ vars.AR_PUBLISH_SA || 'github-deploy@broadchurch.iam.gserviceaccount.com' }}
+            - name: Export Artifact Registry npm token
+              run: echo "AR_NPM_TOKEN=${{ steps.ar_auth.outputs.access_token }}" >> "$GITHUB_ENV"
+            - name: npm ci (lockfile must satisfy package.json)
+              run: npm ci --no-audit --no-fund

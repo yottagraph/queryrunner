@@ -1,0 +1,72 @@
+name: Auto-deploy Compute Jobs
+
+# Push-to-deploy convenience for compute jobs.
+#
+# The platform's `deploy-job.yml` is `workflow_dispatch`-only by design
+# (deploys are explicit, and it avoids a Cloud Build on every unrelated
+# push). The side effect is that a plain `git push` touching `jobs/**`
+# never updates the running K8s Job/CronJob — you'd have to remember to
+# run `/deploy_job <name>` (or `gh workflow run deploy-job.yml`) by hand.
+#
+# This workflow closes that gap: when job source lands on the default
+# branch, it detects which top-level `jobs/<dir>` changed and re-dispatches
+# `deploy-job.yml` for each. Surfaced in the portfolio-risk smoke test
+# (2026-06-02); see Linear ENG-822.
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - 'jobs/**'
+
+permissions:
+    contents: read
+    actions: write # dispatch deploy-job.yml in this repo
+
+jobs:
+    fan-out:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 2
+
+            # Skip in non-tenant checkouts (e.g. the aether template source
+            # repo, which carries broadchurch.yaml.template but no rendered
+            # broadchurch.yaml). Tenant repos render broadchurch.yaml at init.
+            - name: Guard — tenant repo only
+              id: guard
+              run: |
+                  if [ ! -f broadchurch.yaml ]; then
+                    echo "No broadchurch.yaml (template source repo) — skipping auto-deploy."
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Detect changed job dirs and dispatch deploy-job.yml
+              if: steps.guard.outputs.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  # Top-level jobs/<dir> entries touched by this push. Fall
+                  # back to HEAD~1 when `before` is unavailable (e.g. the very
+                  # first push to the branch reports an all-zero before SHA).
+                  if ! git rev-parse --quiet --verify "${BEFORE}^{commit}" >/dev/null 2>&1; then
+                    BEFORE="${AFTER}~1"
+                  fi
+                  CHANGED=$(git diff --name-only "${BEFORE}" "${AFTER}" -- 'jobs/**' \
+                    | awk -F/ 'NF>=2 {print $2}' | sort -u)
+                  if [ -z "${CHANGED}" ]; then
+                    echo "No top-level job dirs changed; nothing to deploy."
+                    exit 0
+                  fi
+                  for dir in ${CHANGED}; do
+                    if [ -f "jobs/${dir}/job.yaml" ]; then
+                      echo "Dispatching deploy-job.yml for jobs/${dir}"
+                      gh workflow run deploy-job.yml -f job_name="${dir}"
+                    else
+                      echo "Skipping jobs/${dir} (no job.yaml — deleted or not a job dir)"
+                    fi
+                  done

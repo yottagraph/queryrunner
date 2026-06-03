@@ -1,0 +1,191 @@
+/* =============================================
+   Lovelace Brand R2 -- Global Styles
+   ============================================= */
+:root {
+    /* Core Palette */
+    --lv-black: #0A0A0A;
+    --lv-surface: #141414;
+    --lv-surface-light: #1E1E1E;
+    --lv-white: #FFFFFF;
+    --lv-silver: #757575;
+
+    /* Primary: Cyber Green */
+    --lv-green: #3FEA00;
+    --lv-green-dim: #30BC00;
+    --lv-green-light: #57FF19;
+
+    /* Secondary: Blaze Orange */
+    --lv-orange: #FF5C00;
+    --lv-orange-dim: #D04E02;
+
+    /* Accent: Electric Blue */
+    --lv-blue: #003BFF;
+    --lv-blue-dim: #0230D0;
+    --lv-blue-light: #2E5DFF;
+
+    /* Semantic */
+    --lv-yellow: #FF9F0A;
+
+    /* Finance blue */
+    --lv-finance-blue: #003BFF;
+    --lv-finance-blue-dim: #0230D0;
+
+    /* Typography */
+    --font-primary: 'FK Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+    --font-headline: 'FK Grotesk Mono', 'Inter', system-ui, sans-serif;
+    --font-brand: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'FK Grotesk Mono', 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-family: var(--font-primary);
+    background: var(--lv-black);
+    color: var(--lv-white);
+}
+
+body {
+    font-family: var(--font-primary);
+    background: var(--lv-black);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Hierarchy (Brand R2) */
+h1, .headline {
+    font-family: var(--font-headline);
+    font-weight: 400;
+}
+
+h2, h3, .subheader {
+    font-family: var(--font-headline);
+    font-weight: 400;
+}
+
+/* Buttons & UI Elements */
+.btn-text, .ui-label {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Utility font classes */
+.font-mono {
+    font-family: var(--font-mono) !important;
+}
+
+.font-headline {
+    font-family: var(--font-headline) !important;
+}
+
+.font-brand {
+    font-family: var(--font-brand) !important;
+}
+
+/* Brand color utility classes */
+.text-green {
+    color: var(--lv-green) !important;
+}
+
+.text-orange {
+    color: var(--lv-orange) !important;
+}
+
+.text-blue {
+    color: var(--lv-blue) !important;
+}
+
+.text-finance-blue {
+    color: var(--lv-finance-blue) !important;
+}
+
+/* Code/Data styling */
+code, pre, .code {
+    font-family: var(--font-mono);
+    background: var(--lv-surface);
+    border-radius: 4px;
+}
+
+code {
+    padding: 0.2em 0.4em;
+    font-size: 0.9em;
+    color: var(--lv-green);
+}
+
+pre {
+    padding: 1rem;
+    overflow-x: auto;
+}
+
+/* Global app height constraints for proper internal scrolling */
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+#__nuxt {
+    height: 100%;
+}
+
+.v-application {
+    height: 100%;
+}
+
+.v-application__wrap {
+    min-height: 100%;
+    height: 100%;
+}
+
+.v-main {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.v-main__wrap {
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Dot Grid Pattern (Brand Mood Board) */
+.lv-dot-grid {
+    background-image: radial-gradient(circle, rgba(117, 117, 117, 0.08) 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+/* Empty state pattern overlay */
+.lv-empty-state {
+    position: relative;
+}
+
+.lv-empty-state::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: radial-gradient(circle, rgba(63, 234, 0, 0.04) 1px, transparent 1px);
+    background-size: 16px 16px;
+    pointer-events: none;
+    border-radius: inherit;
+}
+
+/* Hide all scrollbars globally — content still scrolls, just no visible scrollbar */
+::-webkit-scrollbar {
+    display: none;
+}
+
+* {
+    scrollbar-width: none;
+}

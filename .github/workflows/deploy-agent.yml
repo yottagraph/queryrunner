@@ -1,0 +1,242 @@
+name: Deploy Agent
+# BC 2.0 tenant agent hosting — in-cluster GKE Deployment in the
+# per-tenant cluster (ADR-021, design contract in
+# broadchurch:docs/BC_2_TENANT_AGENT_HOSTING.md).
+#
+# GitOps shape — sibling of deploy-ui.yml. Both build + push to per-tenant
+# Artifact Registry and hand off to ArgoCD via the Portal instead of
+# touching the cluster. This REPLACES the old `adk deploy agent_engine`
+# path: BC 2.0 agents run as a containerized `adk api_server` on the
+# tenant's GKE cluster, and the GKE-hosted UI calls them in-cluster (no
+# Vertex Agent Engine, no Portal /authorize hop).
+#
+# What this workflow does:
+#
+#   1. WIF-authenticates as github-deploy@<...>.iam.gserviceaccount.com.
+#   2. Resolves the per-tenant GCP project via the Portal
+#      `GET /api/projects/<org>/connect-gateway` endpoint (same canonical
+#      pattern deploy-ui.yml / deploy-job.yml use).
+#   3. Runner-side `docker build` + `docker push` of the agents/ image to
+#      the per-tenant Artifact Registry
+#      (`<region>-docker.pkg.dev/<tenant-project>/aether/aether-agent:<sha-7>`).
+#   4. POST `/api/projects/<org>/agent-deploys` on the Portal — that writes
+#      Firestore + dispatches `gcp-bctenant tf-apply.yaml`.
+#   5. ArgoCD detects the value change in the rendered `aether-agent`
+#      ArgoCD Application and rolls the Deployment.
+#
+# What this workflow does NOT do (matches the deploy-ui.yml v2 contract):
+#   - Talk to the Connect Gateway / set kubectl context.
+#   - Apply, edit, or roll any Kubernetes resource directly.
+#   - Run `adk deploy agent_engine` (retired for BC 2.0).
+#
+# Substrate guard: reads `agent.hosting` from broadchurch.yaml. Exits
+# cleanly (0) for `agent.hosting: agent_engine` tenants — the template
+# ships the workflow to every tenant so a future migration to GKE is a
+# config-only flip, but it does nothing for tenants that haven't opted in.
+on:
+    workflow_dispatch: {}
+    push:
+        branches: [main]
+        paths:
+            - 'agents/**'
+            - 'broadchurch.yaml'
+            - '.github/workflows/deploy-agent.yml'
+
+# One in-flight + one queued per tenant repo branch; do NOT cancel
+# in-progress (a running deploy is past the AR push, cancelling leaves
+# orphan layers). Same rationale as deploy-ui.yml.
+concurrency:
+    group: deploy-agent-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    id-token: write
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Platform-side identifiers needed before we know the per-tenant
+            # project ID: substrate guard, WIF provider, github-deploy SA,
+            # and the Portal coordinates used to resolve the per-tenant
+            # project. `gcp.project` here is the SHARED platform project
+            # (broadchurch) and is NOT used for AR push.
+            - name: Read config from broadchurch.yaml
+              id: config
+              run: |
+                  AGENT_HOSTING=$(yq -r '.agent.hosting // "agent_engine"' broadchurch.yaml)
+                  echo "agent_hosting=${AGENT_HOSTING}" >> "$GITHUB_OUTPUT"
+                  echo "org_id=$(yq -r '.tenant.org_id' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "gateway_url=$(yq -r '.gateway.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+
+                  GH_DEPLOY_SA=$(yq -r '.gcp.github_deploy_sa // ""' broadchurch.yaml)
+                  if [ -z "${GH_DEPLOY_SA}" ] || [ "${GH_DEPLOY_SA}" = "null" ]; then
+                    GH_DEPLOY_SA="github-deploy@$(yq -r '.gcp.project' broadchurch.yaml).iam.gserviceaccount.com"
+                  fi
+                  echo "github_deploy_sa=${GH_DEPLOY_SA}" >> "$GITHUB_OUTPUT"
+
+                  WIF_PROVIDER=$(yq -r '.gcp.wif_provider // ""' broadchurch.yaml)
+                  if [ -z "${WIF_PROVIDER}" ] || [ "${WIF_PROVIDER}" = "null" ]; then
+                    WIF_PROVIDER="projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github"
+                  fi
+                  echo "wif_provider=${WIF_PROVIDER}" >> "$GITHUB_OUTPUT"
+
+            # Hard substrate guard. Agent-Engine tenants ship the workflow
+            # (so a future migration to GKE is config-only) but it does
+            # nothing for them. Exit 0 — not a failure, just a no-op.
+            - name: Guard — agent substrate must be `gke`
+              if: steps.config.outputs.agent_hosting != 'gke'
+              run: |
+                  echo "::notice::agent.hosting=${{ steps.config.outputs.agent_hosting }} — agents are not on the GKE substrate for this tenant; skipping."
+                  echo "::notice::See broadchurch:docs/BC_2_TENANT_AGENT_HOSTING.md for the substrate migration path."
+                  exit 0
+
+            - name: Validate agents directory
+              if: steps.config.outputs.agent_hosting == 'gke'
+              run: |
+                  if [ ! -f agents/Dockerfile ]; then
+                    echo "::error::agents/Dockerfile is required for the GKE agent substrate (ADR-021)."
+                    exit 1
+                  fi
+                  # At least one agent package exporting root_agent must exist.
+                  if ! grep -rql "root_agent" agents --include='agent.py'; then
+                    echo "::error::No agents/*/agent.py exporting root_agent found."
+                    exit 1
+                  fi
+
+            # Resolve the per-tenant GCP project + region via the Portal's
+            # `/connect-gateway` endpoint. Same three outcomes as
+            # deploy-ui.yml: 200+project_id → proceed; 404/409 → substrate
+            # not ready yet (clean no-op during tenant init); anything else
+            # → hard fail.
+            - name: Resolve per-tenant GCP project
+              if: steps.config.outputs.agent_hosting == 'gke'
+              id: tenant_project
+              env:
+                  GATEWAY_URL: ${{ steps.config.outputs.gateway_url }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+              run: |
+                  set -euo pipefail
+                  COORDS_FILE=$(mktemp)
+                  HTTP_STATUS=$(curl -s -o "${COORDS_FILE}" -w '%{http_code}' \
+                    "${GATEWAY_URL}/api/projects/${ORG_ID}/connect-gateway" || echo "000")
+                  COORDS_BODY=$(cat "${COORDS_FILE}")
+                  rm -f "${COORDS_FILE}"
+
+                  if [ "${HTTP_STATUS}" = "404" ] || [ "${HTTP_STATUS}" = "409" ]; then
+                    echo "::notice::Portal /connect-gateway returned ${HTTP_STATUS}: BC 2.0 substrate not yet provisioned for ${ORG_ID}. Skipping deploy (normal during tenant init; the next push after tf-apply completes will deploy)."
+                    echo "skipped=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  if [ "${HTTP_STATUS}" != "200" ]; then
+                    echo "::error::Portal /connect-gateway returned HTTP ${HTTP_STATUS}: ${COORDS_BODY}"
+                    exit 1
+                  fi
+                  if [ -z "${COORDS_BODY}" ]; then
+                    echo "::error::Portal /connect-gateway returned 200 with empty body."
+                    exit 1
+                  fi
+
+                  TENANT_PROJECT=$(jq -r '.project_id // ""' <<<"${COORDS_BODY}")
+                  TENANT_REGION=$(jq -r '.location // ""' <<<"${COORDS_BODY}")
+                  if [ -z "${TENANT_PROJECT}" ] || [ "${TENANT_PROJECT}" = "null" ]; then
+                    echo "::error::Portal /connect-gateway response missing project_id: ${COORDS_BODY}"
+                    exit 1
+                  fi
+                  echo "project=${TENANT_PROJECT}" >> "$GITHUB_OUTPUT"
+                  echo "region=${TENANT_REGION}" >> "$GITHUB_OUTPUT"
+                  echo "skipped=false" >> "$GITHUB_OUTPUT"
+                  echo "::notice::Resolved per-tenant project=${TENANT_PROJECT} region=${TENANT_REGION}"
+
+            - uses: google-github-actions/auth@v2
+              if: steps.config.outputs.agent_hosting == 'gke' && steps.tenant_project.outputs.skipped != 'true'
+              with:
+                  workload_identity_provider: ${{ steps.config.outputs.wif_provider }}
+                  service_account: ${{ steps.config.outputs.github_deploy_sa }}
+
+            - uses: google-github-actions/setup-gcloud@v2
+              if: steps.config.outputs.agent_hosting == 'gke' && steps.tenant_project.outputs.skipped != 'true'
+
+            # broadchurch_auth reads broadchurch.yaml at runtime (gateway URL
+            # + org_id) to reach the Elemental MCP / Query Server through the
+            # Portal proxy. Bundle it into the build context (agents/) so it
+            # ships inside the image — mirrors the old workflow's bundle step.
+            - name: Bundle broadchurch.yaml into agents/
+              if: steps.config.outputs.agent_hosting == 'gke' && steps.tenant_project.outputs.skipped != 'true'
+              run: |
+                  cp broadchurch.yaml agents/broadchurch.yaml
+                  echo "Bundled broadchurch.yaml into agents/"
+
+            # Runner-side docker build + push of the agents/ image. Only
+            # IAM grant required is `roles/artifactregistry.writer` for the
+            # github-deploy SA on the per-tenant project (installed by
+            # gcp-bctenant's `enable_agent` substrate). Tag is the 7-char
+            # commit SHA; immutable + deterministic.
+            - name: Build and push agent image
+              if: steps.config.outputs.agent_hosting == 'gke' && steps.tenant_project.outputs.skipped != 'true'
+              id: build
+              env:
+                  PROJECT: ${{ steps.tenant_project.outputs.project }}
+                  REGION: ${{ steps.tenant_project.outputs.region }}
+              run: |
+                  set -euo pipefail
+                  SHA="${GITHUB_SHA:0:7}"
+                  IMAGE_REPO="${REGION}-docker.pkg.dev/${PROJECT}/aether/aether-agent"
+                  IMAGE="${IMAGE_REPO}:${SHA}"
+                  echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+                  echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+                  echo "image_repository=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+
+                  echo "Configuring docker auth for ${REGION}-docker.pkg.dev"
+                  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+                  echo "Building image: ${IMAGE}"
+                  docker build -t "${IMAGE}" agents/
+
+                  echo "Pushing image: ${IMAGE}"
+                  docker push "${IMAGE}"
+                  echo "::notice::Pushed ${IMAGE}"
+
+            # Primary mutation. Portal writes Firestore + dispatches
+            # `gcp-bctenant tf-apply.yaml`. A failure here is a hard fail —
+            # the image is in AR but the rollout didn't get registered.
+            - name: Register deploy with Portal
+              if: steps.config.outputs.agent_hosting == 'gke' && steps.tenant_project.outputs.skipped != 'true'
+              env:
+                  GATEWAY: ${{ steps.config.outputs.gateway_url }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+                  IMAGE_TAG: ${{ steps.build.outputs.sha }}
+                  IMAGE_REPOSITORY: ${{ steps.build.outputs.image_repository }}
+              run: |
+                  set -euo pipefail
+                  RESPONSE=$(curl -sf -X POST "${GATEWAY}/api/projects/${ORG_ID}/agent-deploys" \
+                    -H 'Content-Type: application/json' \
+                    -d "{
+                      \"image_tag\": \"${IMAGE_TAG}\",
+                      \"image_repository\": \"${IMAGE_REPOSITORY}\",
+                      \"commit_sha\": \"${GITHUB_SHA}\",
+                      \"workflow_run_id\": \"${GITHUB_RUN_ID}\",
+                      \"deployed_by\": \"github-actions\"
+                    }")
+                  echo "Portal response: ${RESPONSE}"
+
+                  STATUS=$(echo "${RESPONSE}" | jq -r '.status // "unknown"')
+                  WORKFLOW_URL=$(echo "${RESPONSE}" | jq -r '.workflow_run_url // ""')
+                  ETA=$(echo "${RESPONSE}" | jq -r '.eta_minutes // "?"')
+
+                  if [[ "${STATUS}" == "dispatched" ]]; then
+                    echo "::notice::Image ${IMAGE_TAG} registered; gcp-bctenant tf-apply dispatched: ${WORKFLOW_URL}"
+                    echo "::notice::ArgoCD will roll the agent Deployment within ~${ETA} min."
+                  elif [[ "${STATUS}" == "degraded" ]]; then
+                    ERR=$(echo "${RESPONSE}" | jq -r '.dispatch_error // "unknown"')
+                    echo "::error::Portal recorded the deploy but tf-apply dispatch failed: ${ERR}"
+                    echo "::error::Image ${IMAGE_TAG} is in AR; re-run this workflow or dispatch gcp-bctenant tf-apply.yaml manually."
+                    exit 1
+                  else
+                    echo "::error::Unexpected Portal response: ${RESPONSE}"
+                    exit 1
+                  fi

@@ -1,0 +1,53 @@
+# Build artefacts — always rebuilt inside the image, never copied in.
+node_modules
+.nuxt
+.output
+
+# Local secrets / per-user state — must never leak into images.
+.env
+.env.local
+.env.*.local
+.aether-dev-prefs/
+broadchurch.yaml
+.vercel/
+
+# Git + CI — not needed for the build, and pulling .git ruins layer
+# cache reuse because hashes change on every commit.
+.git
+.github
+
+# Editor / OS noise.
+.DS_Store
+.idea
+.vscode
+
+# Dev-only content excluded from the aether template (mirrors
+# build-template.sh's EXCLUDE_FILES). The Nuxt build doesn't need
+# these; keeping them out shrinks the build context.
+docs
+design
+dev-design
+tests
+examples
+patterns
+build-template.sh
+setup-prettier-hooks.sh
+
+# Agent runtime guidance — not bundled by Nuxt.
+.agents
+.cursor
+.claude
+
+# Bundled instruction sources (also rebuilt from commands/, skills/
+# during the npm publish workflow, not needed in the image).
+packages/aether-instructions/commands
+packages/aether-instructions/skills
+
+# Python venvs / caches that occasionally land under the repo.
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# Misc logs.
+*.log
+npm-debug.log*

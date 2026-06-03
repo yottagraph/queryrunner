@@ -1,0 +1,24 @@
+# Cloud Workflows manifest — read by the deploy workflow and the Portal.
+#
+# Required:
+#   name:              The Cloud Workflows name (lowercase, hyphenated, max 64 chars).
+#                      Defaults to the directory name if omitted.
+#
+# Optional (trigger):
+#   schedule:          Cron expression for Cloud Scheduler (e.g. "0 2 * * *").
+#                      Omit to make the workflow ad-hoc only.
+#   schedule_timezone: IANA timezone (e.g. "America/New_York").
+#   schedule_input:    JSON body passed to the workflow as `input` when the
+#                      scheduled execution fires.
+#
+# Optional (call_log_level):
+#   call_log_level:    "LOG_ALL_CALLS" | "LOG_ERRORS_ONLY" | "LOG_NONE".
+#                      Default: "LOG_ERRORS_ONLY".
+
+name: example-workflow
+call_log_level: LOG_ERRORS_ONLY
+
+# Uncomment to run the workflow on a cron schedule:
+# schedule: "0 2 * * *"
+# schedule_timezone: "UTC"
+# schedule_input: '{"limit": 1000, "shards": 8}'

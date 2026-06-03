@@ -1,0 +1,30 @@
+name: Update Design Goals
+on:
+  repository_dispatch:
+    types: [update-design]
+
+jobs:
+  update-design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.AETHER_APP_ID }}
+          private-key: ${{ secrets.AETHER_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Write DESIGN.md
+        run: |
+          echo "${{ github.event.client_payload.design_goals_b64 }}" | base64 -d > DESIGN.md
+
+      - name: Commit DESIGN.md
+        run: |
+          git config user.name "aether-setup[bot]"
+          git config user.email "aether-setup[bot]@users.noreply.github.com"
+          git add DESIGN.md
+          git diff --cached --quiet || git commit -m "[Aether] Update design goals"
+          git push

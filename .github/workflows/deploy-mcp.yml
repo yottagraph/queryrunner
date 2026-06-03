@@ -1,0 +1,151 @@
+name: Deploy MCP Server
+on:
+    workflow_dispatch:
+        inputs:
+            server_name:
+                description: "MCP server directory name under mcp-servers/ (e.g. my-server)"
+                required: true
+
+permissions:
+    contents: read
+    id-token: write
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Read config from broadchurch.yaml
+              id: config
+              run: |
+                  PROJECT=$(yq -r '.gcp.project' broadchurch.yaml)
+                  echo "project=${PROJECT}" >> "$GITHUB_OUTPUT"
+                  echo "region=$(yq -r '.gcp.region' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "project_name=$(yq -r '.tenant.project_name' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "org_id=$(yq -r '.tenant.org_id' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "service_account=$(yq -r '.tenant.service_account' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "gateway_url=$(yq -r '.gateway.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  GH_DEPLOY_SA=$(yq -r '.gcp.github_deploy_sa // ""' broadchurch.yaml)
+                  if [ -z "${GH_DEPLOY_SA}" ] || [ "${GH_DEPLOY_SA}" = "null" ]; then
+                    GH_DEPLOY_SA="github-deploy@${PROJECT}.iam.gserviceaccount.com"
+                  fi
+                  echo "github_deploy_sa=${GH_DEPLOY_SA}" >> "$GITHUB_OUTPUT"
+
+            - name: Validate server directory
+              run: |
+                  SERVER_DIR="mcp-servers/${{ inputs.server_name }}"
+                  if [ ! -f "${SERVER_DIR}/server.py" ]; then
+                    echo "::error::Server directory ${SERVER_DIR} does not contain server.py"
+                    exit 1
+                  fi
+                  if [ ! -f "${SERVER_DIR}/requirements.txt" ]; then
+                    echo "::error::Server directory ${SERVER_DIR} does not contain requirements.txt"
+                    exit 1
+                  fi
+
+            - name: Generate Dockerfile if missing
+              run: |
+                  SERVER_DIR="mcp-servers/${{ inputs.server_name }}"
+                  if [ ! -f "${SERVER_DIR}/Dockerfile" ]; then
+                    cat > "${SERVER_DIR}/Dockerfile" <<'DOCKERFILE'
+                  FROM python:3.13-slim
+                  WORKDIR /app
+                  COPY requirements.txt .
+                  RUN pip install --no-cache-dir -r requirements.txt
+                  COPY . .
+                  ENV PORT=8080
+                  CMD ["python", "-m", "fastmcp", "run", "server:mcp", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8080"]
+                  DOCKERFILE
+                    echo "Generated default Dockerfile"
+                  fi
+
+            - uses: google-github-actions/auth@v2
+              with:
+                  workload_identity_provider: "projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github"
+                  service_account: "${{ steps.config.outputs.github_deploy_sa }}"
+
+            - uses: google-github-actions/setup-gcloud@v2
+
+            - name: Build container
+              id: build
+              run: |
+                  SERVICE_NAME="mcp-$(echo '${{ inputs.server_name }}' | tr '[:upper:]_' '[:lower:]-')"
+                  IMAGE="gcr.io/${{ steps.config.outputs.project }}/${SERVICE_NAME}"
+                  echo "service_name=${SERVICE_NAME}" >> "$GITHUB_OUTPUT"
+                  echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+                  # Use --async to avoid log-streaming permission errors, then poll
+                  BUILD_ID=$(gcloud builds submit "mcp-servers/${{ inputs.server_name }}/" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --tag "${IMAGE}" \
+                    --async --format='value(id)' \
+                    --quiet)
+                  echo "Submitted Cloud Build: ${BUILD_ID}"
+
+                  while true; do
+                    STATUS=$(gcloud builds describe "${BUILD_ID}" \
+                      --project "${{ steps.config.outputs.project }}" \
+                      --format='value(status)')
+                    echo "Build status: ${STATUS}"
+                    if [[ "${STATUS}" == "SUCCESS" ]]; then break; fi
+                    if [[ "${STATUS}" =~ ^(FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR)$ ]]; then
+                      echo "::error::Cloud Build failed with status: ${STATUS}"
+                      exit 1
+                    fi
+                    sleep 15
+                  done
+
+            - name: Deploy to Cloud Run
+              id: deploy
+              run: |
+                  gcloud run deploy "${{ steps.build.outputs.service_name }}" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --region "${{ steps.config.outputs.region }}" \
+                    --image "${{ steps.build.outputs.image }}" \
+                    --platform managed \
+                    --no-allow-unauthenticated \
+                    --service-account "${{ steps.config.outputs.service_account }}" \
+                    --port 8080 \
+                    --quiet
+
+                  SERVICE_URL=$(gcloud run services describe "${{ steps.build.outputs.service_name }}" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --region "${{ steps.config.outputs.region }}" \
+                    --format="value(status.url)")
+                  echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
+                  echo "Deployed to: ${SERVICE_URL}"
+
+            - name: Grant invoker permissions
+              run: |
+                  gcloud run services add-iam-policy-binding "${{ steps.build.outputs.service_name }}" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --region "${{ steps.config.outputs.region }}" \
+                    --member="serviceAccount:${{ steps.config.outputs.service_account }}" \
+                    --role="roles/run.invoker" \
+                    --quiet
+
+                  gcloud run services add-iam-policy-binding "${{ steps.build.outputs.service_name }}" \
+                    --project "${{ steps.config.outputs.project }}" \
+                    --region "${{ steps.config.outputs.region }}" \
+                    --member="serviceAccount:194773164895-compute@developer.gserviceaccount.com" \
+                    --role="roles/run.invoker" \
+                    --quiet
+
+            - name: Register with Portal
+              run: |
+                  GATEWAY="${{ steps.config.outputs.gateway_url }}"
+                  ORG_ID="${{ steps.config.outputs.org_id }}"
+                  SERVICE_URL="${{ steps.deploy.outputs.service_url }}"
+                  SERVER_NAME="${{ inputs.server_name }}"
+
+                  curl -sf -X POST "${GATEWAY}/api/mcp/${ORG_ID}" \
+                    -H "Content-Type: application/json" \
+                    -d "{
+                      \"server_name\": \"${SERVER_NAME}\",
+                      \"service_url\": \"${SERVICE_URL}\",
+                      \"deployed_by\": \"github-actions\",
+                      \"auth\": \"gcp\"
+                    }"
+
+                  echo "Registered ${SERVER_NAME} with Portal gateway"

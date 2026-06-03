@@ -1,0 +1,377 @@
+name: Deploy Aether UI
+# BC 2.0 tenant UI hosting — GKE Deployment in the per-tenant cluster
+# (ADR-020, design contract in
+# broadchurch:docs/BC_2_TENANT_UI_HOSTING_PHASE1.md).
+#
+# v2 GitOps shape (post-ENG-727; replaces the v1 imperative shape
+# that landed in ENG-706). Sibling of deploy-job.yml — both build +
+# push to per-tenant Artifact Registry, but deploy-ui.yml hands off
+# to ArgoCD via the Portal instead of touching the cluster.
+#
+# What this workflow does:
+#
+#   1. WIF-authenticates as github-deploy@broadchurch.iam.gserviceaccount.com.
+#   2. Resolves the per-tenant GCP project via the Portal
+#      `GET /api/projects/<org>/connect-gateway` endpoint. This is
+#      the same canonical pattern deploy-job.yml uses (ENG-700 /
+#      ENG-695): the per-tenant project ID lives in Firestore as
+#      `tenants/<id>.gcp.project_id` (written back by tf-apply
+#      under ENG-709), and is not duplicated into `broadchurch.yaml`.
+#   3. Runner-side `docker build` + `docker push` to the per-tenant
+#      Artifact Registry (`<region>-docker.pkg.dev/<tenant-project>/
+#      aether/aether-app:<sha-7>`). Required IAM grant
+#      (`roles/artifactregistry.writer` on the per-tenant project)
+#      is installed by gcp-bctenant's `enable_tenant_ui` capability
+#      (ENG-758).
+#   4. POST `/api/projects/<org>/ui-deploys` on the Portal — that
+#      writes Firestore + dispatches `gcp-bctenant tf-apply.yaml`.
+#   5. ArgoCD detects the value change in the rendered `aether-ui`
+#      ArgoCD Application and rolls the Deployment. Latency from
+#      tf-apply dispatch to "new pod ready" is typically 3-6 min;
+#      total `git push → live` is ~6-11 min.
+#
+# Why runner-side docker (not Cloud Build): `gcloud builds submit`
+# against the per-tenant project tripped over (a) the default
+# Compute SA being disabled by org policy on bc-* projects, (b) a
+# user-owned Cloud Build staging bucket, and (c) several extra IAM
+# grants the deploy SA didn't hold. The runner-side path avoids
+# all of those (only `roles/artifactregistry.writer` is needed)
+# and runs faster (~1m vs ~3m). See ENG-757.
+#
+# What this workflow does NOT do (v2 contract):
+#
+#   - Talk to the Connect Gateway.
+#   - Set kubectl context, kubeconfig, or any kubectl-* command.
+#   - Apply, edit, or roll any Kubernetes resource directly.
+#   - Validate the Deployment exists ahead of time (the chart's
+#     pause-3.9 bootstrap means the Deployment is healthy from the
+#     moment ArgoCD first syncs, even on fresh tenants).
+#
+# All K8s mutations flow through ArgoCD's sync of the
+# `aether-ui` OCI Helm chart published by aether-dev's
+# publish-aether-ui-chart.yml workflow. The Portal's role is just
+# "record the SHA in Firestore and re-run tf-apply"; tf-apply
+# re-renders the Application's `image.tag` value; ArgoCD does the
+# rest.
+#
+# Why we removed the v1 imperative path (kubectl set image,
+# Connect Gateway, etc.): Seth's review of gcp-bctenant#86
+# (https://github.com/Lovelace-AI/gcp-bctenant/pull/86#issuecomment-4564137689)
+# established that the Portal / tenant workflows should never apply
+# K8s resources outside ArgoCD's sync loop. Two-paths-to-K8s
+# (workflow imperative + ArgoCD declarative) is a mental-model
+# regression we explicitly fixed.
+#
+# Substrate guard:
+#
+#   - Reads `hosting:` from `broadchurch.yaml`. Exits cleanly (0)
+#     for `hosting: vercel` tenants — the template ships the
+#     workflow to every tenant so a future migration to GCP is a
+#     config-only flip, but it does nothing for tenants that
+#     haven't opted in.
+#
+# Trigger surface (ENG-759):
+#
+#   - `workflow_dispatch`: the manual / operator-driven path. Always
+#     available; the v1 contract relied on this exclusively.
+#   - `push: branches: [main]` with a path filter: the auto-deploy
+#     path. Mirrors the Vercel mental model ("push to main = deploy")
+#     and unblocks the Cursor Cloud build agent's UI-shipping loop —
+#     the agent's `gh` token has `contents:write` but not
+#     `actions:write`, so it can push a UI change but cannot dispatch
+#     this workflow directly (observed on the tide-gcp-002 fully-
+#     agent-driven smoke, 2026-05-29). With this in place the agent's
+#     push to `main` triggers the deploy automatically.
+#
+# The path filter is positive (only listed paths trigger), not negative.
+# Reasons:
+#
+#   - Doc-only commits (`README.md`, `docs/`, `DESIGN.md`),
+#     instruction-package updates (`.agents/`), CI changes
+#     (`.github/workflows/`), and dev-only directories (`tests/`,
+#     `dev-design/`) should not cause an image rebuild + ArgoCD roll.
+#   - The Aether template ships this workflow to BC 2.0 tenants where
+#     the substrate is NOT `gcp` (Vercel tenants get it too — see the
+#     substrate guard at "Guard — UI substrate must be `gcp`"). The
+#     guard short-circuits before any expensive work, so push-on-main
+#     is safe to enable for the template-wide audience even though
+#     most pushes won't deploy anywhere.
+#   - During tenant init the Portal pushes several setup commits
+#     (`[Broadchurch] Configure tenant`, `[Aether] Initialize project`)
+#     while `gcp-bctenant tf-apply.yaml` is still warming up the per-
+#     tenant project. The "Resolve per-tenant GCP project" step
+#     handles that race explicitly: it treats a 404/409 from
+#     `/connect-gateway` as "substrate not ready yet" and exits 0
+#     cleanly with a notice rather than failing the run.
+#
+# The concurrency block below collapses a (push, workflow_dispatch)
+# race on the same SHA so we don't double-build / double-register.
+on:
+    workflow_dispatch: {}
+    push:
+        branches: [main]
+        paths:
+            - 'pages/**'
+            - 'components/**'
+            - 'composables/**'
+            - 'layouts/**'
+            - 'plugins/**'
+            - 'middleware/**'
+            - 'server/**'
+            - 'utils/**'
+            - 'assets/**'
+            - 'public/**'
+            - 'features/**'
+            - 'agents/**'
+            - 'app.vue'
+            - 'error.vue'
+            - 'nuxt.config.ts'
+            - 'tsconfig.json'
+            - 'package.json'
+            - 'package-lock.json'
+            - 'Dockerfile'
+            - '.dockerignore'
+            - 'broadchurch.yaml'
+            - '.github/workflows/deploy-ui.yml'
+
+# One in-flight + one queued per tenant repo branch. We deliberately do
+# NOT cancel-in-progress: the running deploy is already past the AR
+# push by the time a queued one starts, and cancelling mid-push leaves
+# orphan layers in AR. Queuing is fine — the second run will hash-skip
+# the docker build if the source is identical.
+concurrency:
+    group: deploy-ui-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    id-token: write
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Pulls the platform-side identifiers needed before we know
+            # the per-tenant project ID: substrate guard, WIF provider,
+            # the github-deploy SA used to authenticate to GCP, and the
+            # Portal coordinates used to resolve the per-tenant project
+            # (next step). `gcp.project` here is intentionally the
+            # SHARED platform project (broadchurch) — same convention
+            # as deploy-job.yml — and is NOT used for AR push.
+            - name: Read config from broadchurch.yaml
+              id: config
+              run: |
+                  HOSTING=$(yq -r '.hosting // "vercel"' broadchurch.yaml)
+                  echo "hosting=${HOSTING}" >> "$GITHUB_OUTPUT"
+                  echo "org_id=$(yq -r '.tenant.org_id' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+                  echo "gateway_url=$(yq -r '.gateway.url' broadchurch.yaml)" >> "$GITHUB_OUTPUT"
+
+                  GH_DEPLOY_SA=$(yq -r '.gcp.github_deploy_sa // ""' broadchurch.yaml)
+                  if [ -z "${GH_DEPLOY_SA}" ] || [ "${GH_DEPLOY_SA}" = "null" ]; then
+                    GH_DEPLOY_SA="github-deploy@$(yq -r '.gcp.project' broadchurch.yaml).iam.gserviceaccount.com"
+                  fi
+                  echo "github_deploy_sa=${GH_DEPLOY_SA}" >> "$GITHUB_OUTPUT"
+
+                  WIF_PROVIDER=$(yq -r '.gcp.wif_provider // ""' broadchurch.yaml)
+                  if [ -z "${WIF_PROVIDER}" ] || [ "${WIF_PROVIDER}" = "null" ]; then
+                    WIF_PROVIDER="projects/194773164895/locations/global/workloadIdentityPools/github-actions/providers/github"
+                  fi
+                  echo "wif_provider=${WIF_PROVIDER}" >> "$GITHUB_OUTPUT"
+
+            # Hard substrate guard. Vercel tenants ship the workflow (so a
+            # future migration to GCP is config-only) but it does nothing
+            # for them. Exit 0 — not a failure, just a no-op.
+            - name: Guard — UI substrate must be `gcp`
+              if: steps.config.outputs.hosting != 'gcp'
+              run: |
+                  echo "::notice::hosting=${{ steps.config.outputs.hosting }} — Aether UI is not on the GCP substrate for this tenant; skipping."
+                  echo "::notice::See broadchurch:docs/BC_2_TENANT_UI_HOSTING_PHASE1.md for the substrate migration path."
+                  exit 0
+
+            - name: Validate Dockerfile
+              if: steps.config.outputs.hosting == 'gcp'
+              run: |
+                  if [ ! -f Dockerfile ]; then
+                    echo "::error::Repo root Dockerfile is required for the GCP substrate. See aether-dev#129 for the canonical multi-stage Dockerfile."
+                    exit 1
+                  fi
+
+            # Resolve the per-tenant GCP project + region via the
+            # Portal's `/connect-gateway` endpoint. This is the
+            # canonical pattern (ENG-700 / ENG-695); deploy-job.yml
+            # uses the same endpoint for best-effort Cloud SQL coords.
+            # For deploy-ui.yml it's the PRIMARY source — without it
+            # we can't address the per-tenant `aether/aether-app` AR
+            # repo.
+            #
+            # Three outcomes:
+            #
+            #   1. 200 + populated `project_id` → resolved; proceed.
+            #   2. 404 / 409 → substrate is not provisioned yet
+            #      (typical during tenant init: the Portal pushes
+            #      setup commits while `gcp-bctenant tf-apply.yaml`
+            #      is still warming up the per-tenant project,
+            #      which takes ~15-25 min). With push-on-main
+            #      auto-deploy (ENG-759) the workflow fires before
+            #      the substrate exists; we treat that as a clean
+            #      no-op rather than a failure. The agent's later
+            #      push (after substrate is ready) succeeds.
+            #   3. Anything else (network error, 200 with empty body,
+            #      200 with missing `project_id`, 5xx) → hard fail
+            #      so the operator notices and investigates.
+            #
+            # `broadchurch.yaml`'s `gcp.project` deliberately stays as
+            # `broadchurch` (the shared platform project that hosts
+            # the github-deploy SA + Vercel deploys) — we do NOT
+            # duplicate the per-tenant project ID into broadchurch.yaml,
+            # which would have to be re-written every time the substrate
+            # is re-provisioned with a new random suffix.
+            - name: Resolve per-tenant GCP project
+              if: steps.config.outputs.hosting == 'gcp'
+              id: tenant_project
+              env:
+                  GATEWAY_URL: ${{ steps.config.outputs.gateway_url }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+              run: |
+                  set -euo pipefail
+
+                  # Capture body + HTTP status in one round-trip.
+                  COORDS_FILE=$(mktemp)
+                  HTTP_STATUS=$(curl -s -o "${COORDS_FILE}" -w '%{http_code}' \
+                    "${GATEWAY_URL}/api/projects/${ORG_ID}/connect-gateway" || echo "000")
+                  COORDS_BODY=$(cat "${COORDS_FILE}")
+                  rm -f "${COORDS_FILE}"
+
+                  # Outcome 2: substrate not provisioned yet → clean no-op.
+                  # 404 = tenant doc missing the BC 2.0 gcp coords;
+                  # 409 = Portal explicitly signals "substrate not ready".
+                  if [ "${HTTP_STATUS}" = "404" ] || [ "${HTTP_STATUS}" = "409" ]; then
+                    echo "::notice::Portal /connect-gateway returned ${HTTP_STATUS}: BC 2.0 substrate not yet provisioned for ${ORG_ID}. Skipping deploy (this is normal during tenant init; the next push after tf-apply completes will deploy)."
+                    echo "skipped=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  # Outcome 3: anything else non-2xx is a hard fail.
+                  if [ "${HTTP_STATUS}" != "200" ]; then
+                    echo "::error::Portal /connect-gateway returned HTTP ${HTTP_STATUS}: ${COORDS_BODY}"
+                    exit 1
+                  fi
+
+                  if [ -z "${COORDS_BODY}" ]; then
+                    echo "::error::Portal /connect-gateway returned 200 with empty body."
+                    exit 1
+                  fi
+
+                  TENANT_PROJECT=$(jq -r '.project_id // ""' <<<"${COORDS_BODY}")
+                  TENANT_REGION=$(jq -r '.location // ""' <<<"${COORDS_BODY}")
+                  if [ -z "${TENANT_PROJECT}" ] || [ "${TENANT_PROJECT}" = "null" ]; then
+                    echo "::error::Portal /connect-gateway response missing project_id: ${COORDS_BODY}"
+                    exit 1
+                  fi
+                  echo "project=${TENANT_PROJECT}" >> "$GITHUB_OUTPUT"
+                  echo "region=${TENANT_REGION}" >> "$GITHUB_OUTPUT"
+                  echo "skipped=false" >> "$GITHUB_OUTPUT"
+                  echo "::notice::Resolved per-tenant project=${TENANT_PROJECT} region=${TENANT_REGION}"
+
+            - uses: google-github-actions/auth@v2
+              if: steps.config.outputs.hosting == 'gcp' && steps.tenant_project.outputs.skipped != 'true'
+              with:
+                  workload_identity_provider: ${{ steps.config.outputs.wif_provider }}
+                  service_account: ${{ steps.config.outputs.github_deploy_sa }}
+
+            - uses: google-github-actions/setup-gcloud@v2
+              if: steps.config.outputs.hosting == 'gcp' && steps.tenant_project.outputs.skipped != 'true'
+
+            # Runner-side docker build + push. Replaces the earlier
+            # Cloud Build path that needed too much extra IAM + a
+            # user-owned staging bucket on the per-tenant project
+            # (see ENG-757 / ENG-758 for the history). The only IAM
+            # grant required here is `roles/artifactregistry.writer`
+            # for the github-deploy SA on the per-tenant project,
+            # installed by gcp-bctenant's `enable_tenant_ui`.
+            # Image tag is the 7-char commit SHA; immutable +
+            # deterministic.
+            - name: Build and push UI image
+              if: steps.config.outputs.hosting == 'gcp' && steps.tenant_project.outputs.skipped != 'true'
+              id: build
+              env:
+                  PROJECT: ${{ steps.tenant_project.outputs.project }}
+                  REGION: ${{ steps.tenant_project.outputs.region }}
+              run: |
+                  set -euo pipefail
+                  SHA="${GITHUB_SHA:0:7}"
+                  IMAGE_REPO="${REGION}-docker.pkg.dev/${PROJECT}/aether/aether-app"
+                  IMAGE="${IMAGE_REPO}:${SHA}"
+                  echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+                  echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+                  echo "image_repository=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+
+                  echo "Configuring docker auth for ${REGION}-docker.pkg.dev"
+                  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+                  # The Dockerfile's `npm ci` pulls the private @yottagraph-app/*
+                  # scope from broadchurch/aether-npm, which needs an AR read
+                  # token. We're already WIF-authed as github-deploy@broadchurch
+                  # (it holds artifactregistry.reader on aether-npm), so mint a
+                  # token and hand it to the build as a BuildKit secret — it
+                  # never lands in an image layer. Without this, `npm ci` 401s
+                  # on @yottagraph-app/* (the .npmrc scope-pin fails closed).
+                  AR_NPM_TOKEN="$(gcloud auth print-access-token)"
+                  export AR_NPM_TOKEN DOCKER_BUILDKIT=1
+
+                  echo "Building image: ${IMAGE}"
+                  docker build --secret id=ar_npm_token,env=AR_NPM_TOKEN -t "${IMAGE}" .
+
+                  echo "Pushing image: ${IMAGE}"
+                  docker push "${IMAGE}"
+                  echo "::notice::Pushed ${IMAGE}"
+
+            # The primary mutation. Portal writes Firestore + dispatches
+            # `gcp-bctenant tf-apply.yaml`. A failure here is a hard fail
+            # for the workflow — the image is in AR but the rollout
+            # didn't get registered, and we DO want the operator to know
+            # so they can retry instead of silently shipping a stale UI.
+            #
+            # Payload uses the v2 contract shape (`image_tag` +
+            # `image_repository`). The Portal endpoint also accepts the
+            # legacy v1 shape (`image` + `sha`) during the rollout
+            # window so old tenant repos keep working until they pull
+            # the updated aether-instructions package.
+            - name: Register deploy with Portal
+              if: steps.config.outputs.hosting == 'gcp' && steps.tenant_project.outputs.skipped != 'true'
+              env:
+                  GATEWAY: ${{ steps.config.outputs.gateway_url }}
+                  ORG_ID: ${{ steps.config.outputs.org_id }}
+                  IMAGE_TAG: ${{ steps.build.outputs.sha }}
+                  IMAGE_REPOSITORY: ${{ steps.build.outputs.image_repository }}
+              run: |
+                  set -euo pipefail
+                  RESPONSE=$(curl -sf -X POST "${GATEWAY}/api/projects/${ORG_ID}/ui-deploys" \
+                    -H 'Content-Type: application/json' \
+                    -d "{
+                      \"image_tag\": \"${IMAGE_TAG}\",
+                      \"image_repository\": \"${IMAGE_REPOSITORY}\",
+                      \"commit_sha\": \"${GITHUB_SHA}\",
+                      \"workflow_run_id\": \"${GITHUB_RUN_ID}\",
+                      \"deployed_by\": \"github-actions\"
+                    }")
+                  echo "Portal response: ${RESPONSE}"
+
+                  STATUS=$(echo "${RESPONSE}" | jq -r '.status // "unknown"')
+                  WORKFLOW_URL=$(echo "${RESPONSE}" | jq -r '.workflow_run_url // ""')
+                  ETA=$(echo "${RESPONSE}" | jq -r '.eta_minutes // "?"')
+
+                  if [[ "${STATUS}" == "dispatched" ]]; then
+                    echo "::notice::Image ${IMAGE_TAG} registered; gcp-bctenant tf-apply dispatched: ${WORKFLOW_URL}"
+                    echo "::notice::ArgoCD will roll Deployment within ~${ETA} min."
+                  elif [[ "${STATUS}" == "degraded" ]]; then
+                    ERR=$(echo "${RESPONSE}" | jq -r '.dispatch_error // "unknown"')
+                    echo "::error::Portal recorded the deploy but tf-apply dispatch failed: ${ERR}"
+                    echo "::error::Image ${IMAGE_TAG} is in AR; re-run this workflow or dispatch gcp-bctenant tf-apply.yaml manually."
+                    exit 1
+                  else
+                    echo "::error::Unexpected Portal response: ${RESPONSE}"
+                    exit 1
+                  fi

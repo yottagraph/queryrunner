@@ -1,0 +1,13 @@
+# Per-agent deps for local dev (`cd agents && adk web`). The container
+# image that runs on GKE installs agents/requirements.txt instead (see
+# agents/Dockerfile + ADR-021) — keep these two in sync.
+#
+# No `agent_engines` extra: BC 2.0 agents run as a containerized
+# `adk api_server` on the per-tenant GKE cluster, not on Vertex Agent
+# Engine. Pin ADK to 1.x (see agents/requirements.txt for the rationale).
+google-adk>=1.2.0,<2.0
+google-cloud-aiplatform[adk]>=1.95.0,<2.0
+google-auth>=2.20.0
+httpx>=0.27.0
+mcp>=1.0.0
+pyyaml>=6.0
